@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% set is_new = recipe is none %}
+{% block title %}{{ 'New Recipe' if is_new else 'Edit — ' + (recipe['title'] or 'Recipe') }} — TheRecipes{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Live star preview ── */
+  #rating-stars {
+    font-size: 1.15rem;
+    letter-spacing: .06em;
+    transition: color .15s;
+    min-width: 6rem;
+  }
+
+  /* ── Image preview ── */
+  #img-preview {
+    display: none;
+    width: 100%;
+    max-height: 260px;
+    object-fit: cover;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-top: .65rem;
+  }
+  #img-preview.visible { display: block; }
+
+  /* ── Field hint ── */
+  .field-hint {
+    font-family: sans-serif;
+    font-size: .77rem;
+    color: var(--muted);
+    margin-top: .25rem;
+  }
+
+  /* ── Section divider ── */
+  .form-section {
+    border-top: 2px solid var(--accent2);
+    padding-top: 1rem;
+    margin-top: 1.25rem;
+    margin-bottom: 1rem;
+    font-family: sans-serif;
+    font-size: .78rem;
+    font-weight: bold;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+</style>
+
+<!-- ── Page header ── -->
+<div class="gap" style="margin-bottom:1.25rem;">
+  {% if is_new %}
+    <h1 style="margin:0;">New Recipe</h1>
+  {% else %}
+    <a href="/recipe/{{ recipe['id'] }}" class="btn btn-outline" style="font-size:.85rem;">← Back</a>
+    <h1 style="margin:0;">Edit Recipe</h1>
+  {% endif %}
+</div>
+
+<form action="{{ '/recipes/new' if is_new else '/recipe/' + recipe['id']|string + '/edit' }}"
+      method="post" style="max-width:760px;">
+
+  <!-- ── About the recipe ── -->
+  <div class="form-section">About the Recipe</div>
+
+  <div class="form-group">
+    <label for="title">Title</label>
+    <input type="text" id="title" name="title"
+           value="{{ recipe['title'] or '' if not is_new else '' }}"
+           placeholder="e.g. Grandma's Chocolate Cake"
+           autofocus />
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+    <div class="form-group">
+      <label for="dish_category">Category</label>
+      <select id="dish_category" name="dish_category">
+        <option value="">— Select —</option>
+        {% for cat in categories %}
+          <option value="{{ cat }}"
+            {{ 'selected' if (not is_new and recipe['dish_category'] == cat) }}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="rating">Rating</label>
+      <div style="display:flex; align-items:center; gap:.75rem;">
+        <select id="rating" name="rating" style="flex:1;"
+                onchange="updateStars(this.value)">
+          <option value="-1" {{ 'selected' if is_new or (recipe['rating']|default(-1))|int == -1 }}>
+            — Unrated
+          </option>
+          {% for v in range(0, 11) %}
+            <option value="{{ v }}"
+              {{ 'selected' if (not is_new and (recipe['rating']|default(-1))|int == v) }}>
+              {{ v }} / 10{% if v == 0 %} — Poor{% elif v <= 3 %} — Below avg{% elif v <= 5 %} — Average{% elif v <= 7 %} — Good{% elif v == 8 %} — Very good{% elif v == 9 %} — Excellent{% else %} — Exceptional{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+        <span id="rating-stars"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Authorship ── -->
+  <div class="form-section">Authorship</div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+    <div class="form-group">
+      <label for="original_author">Original Author</label>
+      <input type="text" id="original_author" name="original_author"
+             value="{{ recipe['original_author'] or '' if not is_new else '' }}"
+             placeholder="e.g. Grandma Rose, Julia Child" />
+      <p class="field-hint">Who created this recipe in the real world.</p>
+    </div>
+    <div class="form-group">
+      <label for="recipe_submitter">Added By</label>
+      <input type="text" id="recipe_submitter" name="recipe_submitter"
+             value="{{ recipe['recipe_submitter'] or '' if not is_new else '' }}"
+             placeholder="e.g. your name or username" />
+      <p class="field-hint">Who added it to this database.</p>
+    </div>
+  </div>
+
+  <!-- ── Ingredients & Instructions ── -->
+  <div class="form-section">Ingredients &amp; Instructions</div>
+
+  <div class="form-group">
+    <label for="ingredients">Ingredients</label>
+    <textarea id="ingredients" name="ingredients" rows="12"
+              placeholder="One ingredient per line, e.g.:&#10;2 cups all-purpose flour&#10;1 tsp baking soda&#10;½ cup butter, softened">{{ recipe['ingredients'] or '' if not is_new else '' }}</textarea>
+    <p class="field-hint">One ingredient per line. Include quantity and unit.</p>
+  </div>
+
+  <div class="form-group">
+    <label for="instructions">Instructions</label>
+    <textarea id="instructions" name="instructions" rows="12"
+              placeholder="Step-by-step instructions…&#10;&#10;You can use numbered steps or plain paragraphs.">{{ recipe['instructions'] or '' if not is_new else '' }}</textarea>
+  </div>
+
+  <div class="form-group">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="4"
+              placeholder="Serving suggestions, variations, storage tips, where you found this recipe…">{{ recipe['notes'] or '' if not is_new else '' }}</textarea>
+  </div>
+
+  <!-- ── Image ── -->
+  <div class="form-section">Image (optional)</div>
+
+  <div class="form-group">
+    <label for="image_path">Image Path or URL</label>
+    <input type="text" id="image_path" name="image_path"
+           value="{{ recipe['image_path'] or '' if not is_new else '' }}"
+           placeholder="/images/my-recipe.jpg  or  https://example.com/photo.jpg"
+           oninput="previewImage(this.value)" />
+    <p class="field-hint">
+      Enter a local file path (served from the /images volume) or a full URL.
+      The SHA-256 hash is computed automatically for local files.
+    </p>
+    {% if not is_new and recipe['image_hash'] %}
+      <p class="field-hint" style="margin-top:.35rem;">
+        Current hash: <code style="font-size:.73rem;">{{ recipe['image_hash'][:24] }}…</code>
+      </p>
+    {% endif %}
+    <img id="img-preview" src="" alt="Image preview" />
+  </div>
+
+  <!-- ── Actions ── -->
+  <div class="gap" style="margin-top:1.5rem;">
+    <button type="submit" class="btn btn-primary">
+      {{ '✓ Create Recipe' if is_new else '💾 Save Changes' }}
+    </button>
+    {% if is_new %}
+      <a href="/recipes" class="btn btn-outline">Cancel</a>
+    {% else %}
+      <a href="/recipe/{{ recipe['id'] }}" class="btn btn-outline">Cancel</a>
+    {% endif %}
+  </div>
+
+</form>
+
+<script>
+  // ── Star preview ───────────────────────────────────────────────────────────
+  function updateStars(val) {
+    const el = document.getElementById('rating-stars');
+    const v  = parseInt(val, 10);
+    if (v < 0) { el.textContent = ''; el.style.color = ''; return; }
+    const filled = Math.round(v / 2);
+    el.textContent = '★'.repeat(filled) + '☆'.repeat(5 - filled);
+    el.style.color = v >= 7 ? '#27ae60' : (v >= 4 ? '#f39c12' : '#c0392b');
+  }
+
+  // Initialise star preview on load
+  updateStars(document.getElementById('rating').value);
+
+  // ── Image preview ──────────────────────────────────────────────────────────
+  function previewImage(val) {
+    const img = document.getElementById('img-preview');
+    const v   = val.trim();
+    if (!v) { img.classList.remove('visible'); return; }
+
+    // Determine src — URL vs local path
+    let src = v;
+    if (!v.startsWith('http://') && !v.startsWith('https://')) {
+      // Can't serve arbitrary local paths from the browser —
+      // show a note instead of trying to load
+      img.classList.remove('visible');
+      return;
+    }
+    img.src = src;
+    img.onload  = () => img.classList.add('visible');
+    img.onerror = () => img.classList.remove('visible');
+  }
+
+  // Run preview on page load for edit forms
+  previewImage(document.getElementById('image_path').value);
+</script>
+{% endblock %}
