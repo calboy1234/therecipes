@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe['title'] or 'Recipe' }} — TheRecipes{% endblock %}
+
+{% block content %}
+<style>
+  .recipe-title { font-size: 2.3rem; color: var(--accent); margin: 0 0 .4rem; line-height: 1.15; }
+
+  .recipe-meta {
+    display: flex; gap: .65rem; flex-wrap: wrap;
+    align-items: center; margin-top: .4rem;
+    font-family: sans-serif; font-size: .87rem; color: var(--muted);
+  }
+  .meta-sep { color: var(--border); }
+
+  /* ── Rating pill ── */
+  .rating-pill {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .22rem .65rem; border-radius: var(--radius);
+    font-family: sans-serif; border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .rating-pill .r-stars { font-size: .95rem; letter-spacing: .04em; }
+  .rating-pill .r-num   { font-weight: bold; font-size: .9rem; }
+  .rating-pill .r-max   { color: var(--muted); font-size: .78rem; }
+  .rating-pill.r-high   { background: #eafaf1; border-color: #a9dfbf; }
+  .rating-pill.r-high .r-stars { color: #27ae60; }
+  .rating-pill.r-mid    { background: #fef9e7; border-color: #f9e79f; }
+  .rating-pill.r-mid  .r-stars { color: #f39c12; }
+  .rating-pill.r-low    { background: #fdedec; border-color: #fadbd8; }
+  .rating-pill.r-low  .r-stars { color: #c0392b; }
+  .rating-pill.r-none   { color: var(--muted); font-style: italic; font-size: .83rem; }
+
+  /* ── Section headings ── */
+  .section-heading {
+    font-size: 1.15rem;
+    border-bottom: 2px solid var(--accent2);
+    padding-bottom: .35rem; margin-bottom: 1rem;
+  }
+
+  /* ── Ingredients ── */
+  .ingredient-item {
+    display: flex; align-items: flex-start; gap: .7rem;
+    padding: .38rem .4rem; border-radius: var(--radius);
+    cursor: pointer; transition: background .15s; margin-bottom: .45rem;
+    font-size: 1.02rem;
+  }
+  .ingredient-item:hover { background: #f0ede6; }
+  .ingredient-item input[type="checkbox"] {
+    margin-top: .3rem; width: 1.15rem; height: 1.15rem;
+    accent-color: var(--accent); flex-shrink: 0; cursor: pointer;
+  }
+  .ingredient-item.checked .ing-text { text-decoration: line-through; color: var(--muted); }
+
+  /* ── Scale control ── */
+  .scale-box {
+    display: inline-flex; align-items: center; gap: .6rem;
+    background: var(--surface); border: 1px solid var(--border);
+    padding: .5rem .85rem; border-radius: var(--radius); margin-bottom: 1.1rem;
+  }
+  .scale-box button {
+    width: 28px; height: 28px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--bg);
+    cursor: pointer; font-weight: bold; font-size: .95rem;
+  }
+  .scale-box button:hover { background: #eee; }
+  .scale-box input {
+    width: 52px; text-align: center; padding: .2rem;
+    border: 1px solid var(--border); border-radius: 4px; font-size: .92rem;
+  }
+  .scale-label { font-family: sans-serif; font-size: .82rem; color: var(--muted); }
+  #scale-display { font-family: sans-serif; font-weight: bold; min-width: 34px; }
+
+  /* ── Instructions ── */
+  .instructions-text {
+    white-space: pre-wrap; font-size: 1.02rem; line-height: 1.85;
+  }
+
+  /* ── Recipe image ── */
+  .recipe-img {
+    width: 100%; max-height: 380px; object-fit: cover;
+    display: block; border-radius: var(--radius);
+    margin-bottom: 1.5rem;
+  }
+</style>
+
+{% set rating = recipe['rating']|default(-1)|int %}
+
+<!-- ── Header ── -->
+<div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
+  <div>
+    <h1 class="recipe-title">{{ recipe['title'] or 'Untitled Recipe' }}</h1>
+
+    <div class="recipe-meta">
+      {% if recipe['original_author'] %}
+        <span>👤 {{ recipe['original_author'] }}</span>
+        <span class="meta-sep">·</span>
+      {% endif %}
+      {% if recipe['dish_category'] %}
+        <span class="badge badge-grey">{{ recipe['dish_category'] }}</span>
+        <span class="meta-sep">·</span>
+      {% endif %}
+      {% if recipe['recipe_submitter'] %}
+        <span>Added by {{ recipe['recipe_submitter'] }}</span>
+        <span class="meta-sep">·</span>
+      {% endif %}
+      <span>{{ recipe['created_at'][:10] }}</span>
+    </div>
+
+    <!-- Rating -->
+    <div style="margin-top:.65rem;">
+      {% if rating < 0 %}
+        <span class="rating-pill r-none">Not yet rated</span>
+      {% else %}
+        {% set filled = (rating / 2)|round(0,'floor')|int %}
+        {% set cls = 'r-high' if rating >= 7 else ('r-low' if rating <= 3 else 'r-mid') %}
+        <span class="rating-pill {{ cls }}">
+          <span class="r-stars">
+            {%- for i in range(filled) %}★{% endfor -%}
+            {%- for i in range(5 - filled) %}☆{% endfor -%}
+          </span>
+          <span class="r-num">{{ rating }}</span>
+          <span class="r-max">/ 10</span>
+        </span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="gap no-print">
+    <button onclick="window.print()" class="btn btn-outline">🖨 Print</button>
+    <a href="/recipe/{{ recipe['id'] }}/edit" class="btn btn-primary">✏ Edit</a>
+  </div>
+</div>
+
+<!-- ── Recipe image ── -->
+{% if recipe['image_path'] %}
+  {% if recipe['image_path'].startswith('http') %}
+    <img src="{{ recipe['image_path'] }}" alt="{{ recipe['title'] or 'Recipe photo' }}"
+         class="recipe-img" onerror="this.style.display='none'" />
+  {% else %}
+    <img src="/recipe/{{ recipe['id'] }}/image" alt="{{ recipe['title'] or 'Recipe photo' }}"
+         class="recipe-img" onerror="this.style.display='none'" />
+  {% endif %}
+{% endif %}
+
+<!-- ── Body ── -->
+<div class="two-col">
+
+  <!-- Ingredients -->
+  <div>
+    <h2 class="section-heading">Ingredients</h2>
+
+    <div class="scale-box no-print">
+      <span class="scale-label">Scale:</span>
+      <button onclick="changeScale(-1)">−</button>
+      <input type="number" id="scale-input" value="1" step="0.1" min="0.1" max="20"
+             onchange="applyCustomScale()" />
+      <button onclick="changeScale(1)">+</button>
+      <span id="scale-display">1×</span>
+    </div>
+
+    <div id="ingredients-list">
+      {% if recipe['ingredients'] %}
+        {% for line in recipe['ingredients'].split('\n') %}
+          {% set line = line.strip() %}
+          {% if line %}
+            <label class="ingredient-item" onclick="toggleCheck(this, event)">
+              <input type="checkbox" class="no-print" />
+              <span class="ing-text" data-orig="{{ line }}">{{ line }}</span>
+            </label>
+          {% endif %}
+        {% endfor %}
+      {% else %}
+        <p class="muted">No ingredients listed.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Instructions -->
+  <div>
+    <h2 class="section-heading">Instructions</h2>
+    <div class="instructions-text card">{{ recipe['instructions'] or 'No instructions provided.' }}</div>
+
+    {% if recipe['notes'] %}
+      <h3 style="margin-top:1.75rem; margin-bottom:.5rem;">📝 Notes</h3>
+      <div class="card muted" style="font-style:italic; white-space:pre-wrap;">{{ recipe['notes'] }}</div>
+    {% endif %}
+
+    <!-- Submitter / hash info (discreet) -->
+    {% if recipe['image_hash'] %}
+      <p class="muted" style="margin-top:1.5rem; font-size:.73rem;">
+        Image SHA-256: <code style="font-size:.7rem;">{{ recipe['image_hash'][:16] }}…</code>
+      </p>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Delete (bottom, unobtrusive) -->
+<div style="margin-top:2.5rem; padding-top:1rem; border-top:1px solid var(--border);" class="no-print">
+  <form action="/recipe/{{ recipe['id'] }}/delete" method="post" style="display:inline;"
+        onsubmit="return confirm('Delete this recipe? This cannot be undone.')">
+    <button type="submit" class="btn btn-outline"
+            style="font-size:.82rem; color:#c0392b; border-color:#f5b7b1;">
+      🗑 Delete Recipe
+    </button>
+  </form>
+</div>
+
+<script>
+  // ── Checkbox ──────────────────────────────────────────────────────────────
+  function toggleCheck(label, e) {
+    if (e.target.tagName !== 'INPUT') {
+      const cb = label.querySelector('input');
+      cb.checked = !cb.checked;
+    }
+    label.classList.toggle('checked', label.querySelector('input').checked);
+  }
+
+  // ── Ingredient scaler ─────────────────────────────────────────────────────
+  const STEPS = [0.25, 0.333, 0.5, 1, 1.5, 2, 3, 4, 5, 6];
+  let stepIdx = 3; // 1×
+
+  function changeScale(dir) {
+    const cur  = parseFloat(document.getElementById('scale-input').value);
+    let ci = 0, minD = Infinity;
+    STEPS.forEach((s, i) => { const d = Math.abs(s - cur); if (d < minD) { minD = d; ci = i; } });
+    stepIdx = Math.max(0, Math.min(STEPS.length - 1, ci + dir));
+    const ns = STEPS[stepIdx];
+    document.getElementById('scale-input').value = ns === 0.333 ? '0.33' : ns;
+    applyScale(ns);
+  }
+
+  function applyCustomScale() {
+    let v = parseFloat(document.getElementById('scale-input').value);
+    if (isNaN(v) || v <= 0) v = 1;
+    applyScale(v);
+  }
+
+  function applyScale(m) {
+    let lbl = m + '×';
+    if (m === 0.25)                      lbl = '¼×';
+    else if (m === 0.5)                  lbl = '½×';
+    else if (Math.abs(m - 0.333) < 0.01)lbl = '⅓×';
+    document.getElementById('scale-display').textContent = lbl;
+    document.querySelectorAll('.ing-text').forEach(el => {
+      el.textContent = m === 1
+        ? el.dataset.orig
+        : scaleIngredient(el.dataset.orig, m);
+    });
+  }
+
+  function scaleIngredient(text, m) {
+    const match = text.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+)\s*(.*)/);
+    if (!match) return text;
+    let [, qStr, rest] = match;
+    let num = 0;
+    if (qStr.includes('/')) {
+      const parts = qStr.trim().split(/\s+/);
+      if (parts.length === 2) {
+        const [n, d] = parts[1].split('/');
+        num = parseInt(parts[0]) + parseInt(n) / parseInt(d);
+      } else {
+        const [n, d] = parts[0].split('/');
+        num = parseInt(n) / parseInt(d);
+      }
+    } else {
+      num = parseFloat(qStr);
+    }
+    return `${fmtNum(num * m)} ${rest}`;
+  }
+
+  function fmtNum(n) {
+    n = Math.round(n * 100) / 100;
+    const w = Math.floor(n), f = n - w, t = 0.05;
+    let fs = '';
+    if      (Math.abs(f - 0.25) < t) fs = '¼';
+    else if (Math.abs(f - 0.33) < t) fs = '⅓';
+    else if (Math.abs(f - 0.5)  < t) fs = '½';
+    else if (Math.abs(f - 0.66) < t) fs = '⅔';
+    else if (Math.abs(f - 0.75) < t) fs = '¾';
+    else if (f > 0.05) return String(n);
+    if (w === 0 && fs) return fs;
+    if (w > 0  && fs) return `${w} ${fs}`;
+    return String(w);
+  }
+</script>
+{% endblock %}

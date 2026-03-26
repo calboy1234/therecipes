@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Recipes — TheRecipes{% endblock %}
+
+{% block content %}
+
+{% macro stars(rating) %}
+  {% if rating >= 0 %}
+    {% set filled = (rating / 2)|round(0,'floor')|int %}
+    {% set color  = '#27ae60' if rating >= 7 else ('#f39c12' if rating >= 4 else '#c0392b') %}
+    <span style="color:{{ color }}; font-size:.88rem; letter-spacing:.03em;">
+      {%- for i in range(filled) %}★{% endfor -%}
+      {%- for i in range(5 - filled) %}☆{% endfor -%}
+    </span>
+    <span class="muted" style="font-size:.76rem;">{{ rating }}/10</span>
+  {% else %}
+    <span class="muted" style="font-size:.75rem; font-style:italic;">Unrated</span>
+  {% endif %}
+{% endmacro %}
+
+<div class="gap" style="margin-bottom:1.25rem;">
+  <h1 style="margin:0;">Recipes</h1>
+  <span class="muted">{{ rows|length }} result{{ 's' if rows|length != 1 }}</span>
+  <a href="/recipes/new" class="btn btn-primary" style="margin-left:auto;">+ New Recipe</a>
+</div>
+
+<!-- ── Filters ── -->
+<div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem; align-items:center;">
+  <form action="/recipes" method="get"
+        style="display:flex; gap:.5rem; flex:1; flex-wrap:wrap; min-width:200px; align-items:center;">
+    <input type="text" name="q" value="{{ q }}"
+           placeholder="Search title, ingredient, or author…"
+           style="flex:1; min-width:160px;" />
+
+    {% if all_categories %}
+    <select name="category"
+            style="padding:.48rem .7rem; border:1px solid var(--border); border-radius:var(--radius); font-size:.9rem; background:var(--bg);">
+      <option value="">All categories</option>
+      {% for cat in all_categories %}
+        <option value="{{ cat }}" {{ 'selected' if cat == category }}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+
+    <select name="sort"
+            style="padding:.48rem .7rem; border:1px solid var(--border); border-radius:var(--radius); font-size:.9rem; background:var(--bg);">
+      <option value="newest" {{ 'selected' if sort == 'newest' }}>Newest first</option>
+      <option value="rating" {{ 'selected' if sort == 'rating' }}>Highest rated</option>
+      <option value="title"  {{ 'selected' if sort == 'title'  }}>Title A–Z</option>
+    </select>
+
+    <button type="submit" class="btn btn-primary">Filter</button>
+    {% if q or category %}
+      <a href="/recipes" class="btn btn-outline">Clear</a>
+    {% endif %}
+  </form>
+</div>
+
+{% if not rows %}
+  <div class="card muted">No recipes found{% if q %} for "{{ q }}"{% endif %}.</div>
+{% else %}
+<div class="grid">
+  {% for r in rows %}
+  {% set rating = r['rating']|default(-1)|int %}
+  <div class="grid-card">
+    {% if r['image_path'] %}
+      <a href="/recipe/{{ r['id'] }}">
+        {% if r['image_path'].startswith('http') %}
+          <img src="{{ r['image_path'] }}" alt="{{ r['title'] or 'Recipe' }}" loading="lazy"
+               onerror="this.style.display='none'" />
+        {% else %}
+          <img src="/recipe/{{ r['id'] }}/image" alt="{{ r['title'] or 'Recipe' }}" loading="lazy"
+               onerror="this.style.display='none'" />
+        {% endif %}
+      </a>
+    {% endif %}
+    <div class="info">
+      <a class="title" href="/recipe/{{ r['id'] }}">{{ r['title'] or '(untitled)' }}</a>
+
+      <div style="margin-bottom:.3rem;">
+        {{ stars(rating) }}
+      </div>
+
+      <div style="display:flex; gap:.35rem; flex-wrap:wrap; margin-bottom:.3rem;">
+        {% if r['dish_category'] %}
+          <span class="badge badge-grey">{{ r['dish_category'] }}</span>
+        {% endif %}
+      </div>
+
+      {% if r['original_author'] or r['recipe_submitter'] %}
+      <div class="muted" style="font-size:.74rem;">
+        {% if r['original_author'] %}by {{ r['original_author'] }}{% endif %}
+        {% if r['original_author'] and r['recipe_submitter'] %} · {% endif %}
+        {% if r['recipe_submitter'] %}added by {{ r['recipe_submitter'] }}{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
