@@ -17,6 +17,5 @@ VOLUME ["/data", "/images"]
 
 EXPOSE 5000
 
-# Database must be initialised before first run:
-#   docker exec therecipes python manage.py initdb
-CMD ["python", "app.py"]
+# manage.py initdb uses CREATE TABLE IF NOT EXISTS — safe to run on every start.
+CMD ["sh", "-c", "python manage.py initdb && python app.py"]

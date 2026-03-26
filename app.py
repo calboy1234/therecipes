@@ -14,7 +14,7 @@ from flask import (
     url_for, send_file, abort, g
 )
 
-app = Flask(__name__, static_folder="/app/static")
+app = Flask(__name__)
 DB_PATH = os.environ.get("DB_PATH", "/data/database/therecipes.db")
 
 CATEGORIES = [
