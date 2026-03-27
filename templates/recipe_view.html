@@ -463,9 +463,17 @@
     const wn = parseWordNum(line);
     if (wn) {
       const qtyRaw   = line.slice(0, wn.len);
-      const afterQty = line.slice(wn.len).replace(/^\s+/, '');
+      let afterQty   = line.slice(wn.len).replace(/^\s+/, '');
+      
+      // NEW: Strip leading "a " or "an " so "half a cup" resolves to "cup"
+      afterQty = afterQty.replace(/^(a|an)\s+/i, ''); 
+
       const { unit, unitLen } = scanUnit(afterQty);
-      return { qty: wn.num, unit, unitLen, qtyRaw };
+      
+      // Pass the un-stripped string as the raw quantity so we don't lose the "a " if it wasn't a unit
+      const finalQtyRaw = line.slice(0, line.length - afterQty.length);
+      
+      return { qty: wn.num, unit, unitLen, qtyRaw: finalQtyRaw };
     }
 
     return { qty: null, unit: null, unitLen: 0, qtyRaw: '' };
