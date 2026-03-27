@@ -159,7 +159,7 @@
     <span class="logo">🍴 TheRecipes</span>
   </a>
   <a href="/recipes"     class="nav-link {{ 'active' if request.path.startswith('/recipe') or request.path == '/recipes' }}">Browse</a>
-  <a href="/recipes/new" class="nav-link {{ 'active' if request.path == '/recipes/new' }}">+ New Recipe</a>
+  <a href="/recipes/new" class="nav-link {{ 'active' if request.path == '/recipes/new' }}">Create Recipe</a>
   <div class="nav-spacer"></div>
   <form class="nav-search" action="/search" method="get">
     <input name="q" placeholder="Search recipes…" value="{{ request.args.get('q','') }}" />
