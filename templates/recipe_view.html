@@ -66,9 +66,37 @@
   .scale-box input {
     width: 52px; text-align: center; padding: .2rem;
     border: 1px solid var(--border); border-radius: 4px; font-size: .92rem;
+    -moz-appearance: textfield;
   }
+  .scale-box input::-webkit-inner-spin-button,
+  .scale-box input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .scale-label { font-family: sans-serif; font-size: .82rem; color: var(--muted); }
   #scale-display { font-family: sans-serif; font-weight: bold; min-width: 34px; }
+
+  /* ── Unit toggle ── */
+  .unit-toggle {
+    display: inline-flex; border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    font-family: sans-serif; font-size: .8rem;
+  }
+  .unit-toggle button {
+    padding: .38rem .8rem; border: none; border-right: 1px solid var(--border);
+    background: var(--bg); cursor: pointer; color: var(--muted);
+    transition: background .15s, color .15s; white-space: nowrap;
+  }
+  .unit-toggle button:last-child { border-right: none; }
+  .unit-toggle button:hover { background: #eee; }
+  .unit-toggle button.active {
+    background: var(--accent); color: #fff; font-weight: bold;
+  }
+
+  /* ── Controls row (scale + unit toggle side by side) ── */
+  .ing-controls {
+    display: flex; align-items: center; gap: .75rem;
+    flex-wrap: wrap; margin-bottom: 1.1rem;
+  }
+  .ing-controls .scale-box,
+  .ing-controls .unit-toggle { margin-bottom: 0; }
 
   /* ── Instructions ── */
   .instructions-text {
@@ -149,13 +177,21 @@
   <div>
     <h2 class="section-heading">Ingredients</h2>
 
-    <div class="scale-box no-print">
-      <span class="scale-label">Scale:</span>
-      <button onclick="changeScale(-1)">−</button>
-      <input type="number" id="scale-input" value="1" step="0.1" min="0.1" max="20"
-             onchange="applyCustomScale()" />
-      <button onclick="changeScale(1)">+</button>
-      <span id="scale-display">1×</span>
+    <div class="ing-controls no-print">
+      <div class="scale-box">
+        <span class="scale-label">Scale:</span>
+        <button onclick="changeScale(-1)">−</button>
+        <input type="number" id="scale-input" value="1" step="0.1" min="0.1" max="20"
+               onchange="applyCustomScale()" />
+        <button onclick="changeScale(1)">+</button>
+        <span id="scale-display">1×</span>
+      </div>
+
+      <div class="unit-toggle">
+        <button class="utog active" data-mode="original" onclick="setUnitMode('original')">Original</button>
+        <button class="utog" data-mode="metric"   onclick="setUnitMode('metric')">Metric</button>
+        <button class="utog" data-mode="imperial" onclick="setUnitMode('imperial')">Imperial</button>
+      </div>
     </div>
 
     <div id="ingredients-list">
@@ -216,72 +252,301 @@
     label.classList.toggle('checked', label.querySelector('input').checked);
   }
 
-  // ── Ingredient scaler ─────────────────────────────────────────────────────
-  const STEPS = [0.25, 0.333, 0.5, 1, 1.5, 2, 3, 4, 5, 6];
-  let stepIdx = 3; // 1×
+  // ════════════════════════════════════════════════════════════════════════
+  //  INGREDIENT ENGINE
+  //  Rules:
+  //   • Only the FIRST number on each line is ever changed.
+  //   • Everything after qty+unit ("the rest") is returned verbatim.
+  //   • "1 can of 8oz tomatoes" → qty=1, unit=null, rest="can of 8oz…"
+  //     Any mode just scales the "1"; "8oz" is untouched.
+  //   • Unit matching is whole-word only (longest alias first).
+  //   • fmtNum snaps to nice fractions within a percentage; falls to decimal otherwise.
+  //   • Decimal precision: <1 → 2dp, <10 → 1dp, ≥10 → integer.
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── Unit alias table ─────────────────────────────────────────────────────
+  // Maps every recognised spelling to a canonical token.
+  const UNIT_ALIASES = {
+    // metric volume
+    'ml': 'ml', 'milliliter': 'ml', 'milliliters': 'ml',
+    'millilitre': 'ml', 'millilitres': 'ml',
+    'l': 'L', 'liter': 'L', 'liters': 'L', 'litre': 'L', 'litres': 'L',
+    // metric weight
+    'g': 'g', 'gram': 'g', 'grams': 'g', 'gramme': 'g', 'grammes': 'g',
+    'kg': 'kg', 'kilogram': 'kg', 'kilograms': 'kg',
+    'kilogramme': 'kg', 'kilogrammes': 'kg',
+    // imperial / US volume
+    'tsp': 'tsp', 'teaspoon': 'tsp', 'teaspoons': 'tsp', 'tea spoon': 'tsp', 'tea spoons': 'tsp',
+    'tbsp': 'tbsp', 'tablespoon': 'tbsp', 'tablespoons': 'tbsp', 'tbl': 'tbsp', 'tbs': 'tbsp',
+    'cup': 'cup', 'cups': 'cup',
+    'fl oz': 'fl oz', 'fluid oz': 'fl oz', 'fluid ounce': 'fl oz', 'fluid ounces': 'fl oz',
+    'pt': 'pt', 'pint': 'pt', 'pints': 'pt',
+    'qt': 'qt', 'quart': 'qt', 'quarts': 'qt',
+    'gal': 'gal', 'gallon': 'gal', 'gallons': 'gal',
+    // imperial weight
+    'oz': 'oz', 'ounce': 'oz', 'ounces': 'oz',
+    'lb': 'lb', 'lbs': 'lb', 'pound': 'lb', 'pounds': 'lb',
+  };
+
+  // Sorted longest-first so "fluid ounces" matches before "fl" or "oz"
+  const ALIAS_KEYS = Object.keys(UNIT_ALIASES).sort((a, b) => b.length - a.length);
+
+  // ── Conversion tables (all volumes → ml, all weights → g) ─────────────
+  const VOL_ML = {
+    ml: 1, L: 1000,
+    tsp: 4.92892, tbsp: 14.7868, cup: 236.588,
+    'fl oz': 29.5735, pt: 473.176, qt: 946.353, gal: 3785.41,
+  };
+  const WGHT_G = {
+    g: 1, kg: 1000,
+    oz: 28.3495, lb: 453.592,
+  };
+
+  // ── Best-unit selectors ───────────────────────────────────────────────────
+  // Each returns [qty, canonicalUnit] for the most human-friendly display.
+
+  function bestMetricVol(ml) {
+    return ml >= 950 ? [ml / 1000, 'L'] : [ml, 'ml'];
+  }
+  function bestMetricWght(g) {
+    return g >= 950 ? [g / 1000, 'kg'] : [g, 'g'];
+  }
+  function bestImpVol(ml) {
+    // tsp → tbsp (at 1 tbsp) → cup (at ¼ cup) → qt (at 4 cups)
+    const tsp  = ml / VOL_ML.tsp;
+    if (tsp < 3)                    return [tsp,              'tsp'];
+    const tbsp = ml / VOL_ML.tbsp;
+    if (tbsp < 4)                   return [tbsp,             'tbsp'];
+    const cup  = ml / VOL_ML.cup;
+    if (cup  < 16)                  return [cup,              'cup'];
+    const qt   = ml / VOL_ML.qt;
+    if (qt   < 4)                   return [qt,               'qt'];
+    return [ml / VOL_ML.gal,        'gal'];
+  }
+  function bestImpWght(g) {
+    const oz = g / WGHT_G.oz;
+    return oz < 16 ? [oz, 'oz'] : [g / WGHT_G.lb, 'lb'];
+  }
+
+  // ── Number formatting ─────────────────────────────────────────────────────
+  // Nice fraction pairs: [decimal value, unicode symbol]
+  const NICE_FRACS = [
+    [0.125, '⅛'], [0.25, '¼'], [0.333, '⅓'], [0.375, '⅜'],
+    [0.5,   '½'], [0.625,'⅝'], [0.667, '⅔'], [0.75, '¾'], [0.875, '⅞'],
+  ];
+  const FRAC_SNAP = 0.03; // snap if fractional part is within this distance (3%)
+
+  function fmtNum(n) {
+    if (!isFinite(n) || n <= 0) return '0';
+
+    const whole = Math.floor(n);
+    const frac  = n - whole;
+
+    // 1. Try to snap fractional part to a nice fraction symbol
+    let bestDist = FRAC_SNAP, bestSym = null;
+    for (const [val, sym] of NICE_FRACS) {
+      const d = Math.abs(frac - val);
+      if (d < bestDist) { bestDist = d; bestSym = sym; }
+    }
+
+    // 2. Snap to integer if fractional part is tiny
+    if (frac < FRAC_SNAP || Math.abs(frac - 1) < FRAC_SNAP) {
+      return String(frac >= 1 - FRAC_SNAP ? whole + 1 : whole);
+    }
+
+    // 3. Render as mixed number or pure fraction
+    if (bestSym) {
+      return whole === 0 ? bestSym : `${whole} ${bestSym}`;
+    }
+
+    // 4. Fall back to decimal
+    if (n < 1)  return n.toFixed(2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+    if (n < 10) return n.toFixed(1).replace(/\.0$/, '');
+    return String(Math.round(n));
+  }
+
+  // ── Unit display pluralisation ────────────────────────────────────────────
+  const PLURAL = {
+    cup: q => q === 1 ? 'cup'  : 'cups',
+    pt:  q => q === 1 ? 'pt'   : 'pts',
+    qt:  q => q === 1 ? 'qt'   : 'qts',
+  };
+  function displayUnit(qty, unit) {
+    return PLURAL[unit] ? PLURAL[unit](qty) : unit;
+  }
+
+  // ── Written-number lookup ─────────────────────────────────────────────────
+  // Limited to realistic recipe quantities. "a" / "an" = 1 (e.g. "a pinch").
+  // "half" / "quarter" are pure fractions with no whole-number prefix handling.
+  const WORD_NUMS = {
+    'a quarter': 0.25, 'a half': 0.5,
+    'a': 1, 'an': 1,
+    'half': 0.5, 'quarter': 0.25,
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14,
+    'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18,
+    'nineteen': 19, 'twenty': 20,
+  };
+  // Longest first so "a quarter" beats "a", "seventeen" beats "seven", etc.
+  const WORD_NUM_KEYS = Object.keys(WORD_NUMS).sort((a, b) => b.length - a.length);
+
+  function parseWordNum(line) {
+    const lower = line.toLowerCase();
+    for (const word of WORD_NUM_KEYS) {
+      if (!lower.startsWith(word)) continue;
+      // Whole-word boundary: next char must be whitespace, comma, or end-of-string.
+      // This prevents "four" matching "fourteen" or "two" matching "two-tone".
+      const next = lower[word.length];
+      if (next !== undefined && !/[\s,]/.test(next)) continue;
+      return { num: WORD_NUMS[word], len: word.length };
+    }
+    return null;
+  }
+
+  // ── Parser ────────────────────────────────────────────────────────────────
+  // Returns { qty: number|null, unit: string|null, unitLen: number, qtyRaw: string }
+  function parseIngredient(line) {
+    // 1. Try digit-first quantity (mixed fraction, simple fraction, decimal, integer)
+    const qm = line.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+)/);
+    if (!qm) {
+      // 2. Fall back to written number ("two", "a pinch", "half", …)
+      const wn = parseWordNum(line);
+      if (!wn) return { qty: null, unit: null, unitLen: 0, qtyRaw: '' };
+      const qtyRaw   = line.slice(0, wn.len);
+      const afterQty = line.slice(wn.len).replace(/^\s+/, '');
+      const lower    = afterQty.toLowerCase();
+      let unit = null, unitLen = 0;
+      for (const alias of ALIAS_KEYS) {
+        if (!lower.startsWith(alias)) continue;
+        const nc = lower[alias.length];
+        if (nc !== undefined && /[a-z]/.test(nc)) continue;
+        unit = UNIT_ALIASES[alias]; unitLen = alias.length; break;
+      }
+      return { qty: wn.num, unit, unitLen, qtyRaw };
+    }
+
+    const qtyRaw = qm[1];
+    let qty = 0;
+    if (qtyRaw.includes('/')) {
+      const parts = qtyRaw.trim().split(/\s+/);
+      if (parts.length === 2) {
+        const [n, d] = parts[1].split('/');
+        qty = parseInt(parts[0]) + parseInt(n) / parseInt(d);
+      } else {
+        const [n, d] = parts[0].split('/');
+        qty = parseInt(n) / parseInt(d);
+      }
+    } else {
+      qty = parseFloat(qtyRaw);
+    }
+
+    // Attempt to find a unit word immediately following the quantity
+    const afterQty  = line.slice(qtyRaw.length).replace(/^\s+/, '');
+    const lowerRest = afterQty.toLowerCase();
+    let unit = null, unitLen = 0;
+
+    for (const alias of ALIAS_KEYS) {
+      if (!lowerRest.startsWith(alias)) continue;
+      // Whole-word check: must not be followed by a letter
+      const nextChar = lowerRest[alias.length];
+      if (nextChar !== undefined && /[a-z]/.test(nextChar)) continue;
+      unit    = UNIT_ALIASES[alias];
+      unitLen = alias.length;
+      break;
+    }
+
+    return { qty, unit, unitLen, qtyRaw };
+  }
+
+  // ── Main transform ────────────────────────────────────────────────────────
+  // Applies scale multiplier + unit mode to one raw ingredient line.
+  function transformIngredient(line, scaleMult, mode) {
+    const { qty, unit, unitLen, qtyRaw } = parseIngredient(line);
+
+    // No leading number — return unchanged
+    if (qty === null) return line;
+
+    const scaledQty = qty * scaleMult;
+
+    // Everything after qty (including leading space before unit)
+    const afterQty = line.slice(qtyRaw.length);
+    // "rest" = everything after the unit token (or everything if no unit)
+    const rest = unit
+      ? afterQty.replace(/^\s+/, '').slice(unitLen)   // skip unit chars
+      : afterQty;                                      // no unit — keep all
+
+    // No recognised unit: any mode → just scale the quantity
+    if (!unit) {
+      return `${fmtNum(scaledQty)}${rest}`;
+    }
+
+    // Original mode: scale number, keep original unit
+    if (mode === 'original') {
+      return `${fmtNum(scaledQty)} ${displayUnit(scaledQty, unit)}${rest}`;
+    }
+
+    // Convert to target system
+    let newQty, newUnit;
+    if (unit in VOL_ML) {
+      const ml = scaledQty * VOL_ML[unit];
+      [newQty, newUnit] = mode === 'metric' ? bestMetricVol(ml) : bestImpVol(ml);
+    } else if (unit in WGHT_G) {
+      const g = scaledQty * WGHT_G[unit];
+      [newQty, newUnit] = mode === 'metric' ? bestMetricWght(g) : bestImpWght(g);
+    } else {
+      // Canonical but no conversion data (shouldn't happen) — pass through
+      newQty  = scaledQty;
+      newUnit = unit;
+    }
+
+    return `${fmtNum(newQty)} ${displayUnit(newQty, newUnit)}${rest}`;
+  }
+
+  // ── Scaler state ──────────────────────────────────────────────────────────
+  const STEPS = [0.125, 0.16666, 0.25, 0.333, 0.5, 1, 1.5, 2, 3, 4, 5, 6];
+  let unitMode = 'original';
 
   function changeScale(dir) {
-    const cur  = parseFloat(document.getElementById('scale-input').value);
+    const cur = parseFloat(document.getElementById('scale-input').value) || 1;
     let ci = 0, minD = Infinity;
     STEPS.forEach((s, i) => { const d = Math.abs(s - cur); if (d < minD) { minD = d; ci = i; } });
-    stepIdx = Math.max(0, Math.min(STEPS.length - 1, ci + dir));
-    const ns = STEPS[stepIdx];
+    const ni = Math.max(0, Math.min(STEPS.length - 1, ci + dir));
+    const ns = STEPS[ni];
     document.getElementById('scale-input').value = ns === 0.333 ? '0.33' : ns;
     applyScale(ns);
   }
 
   function applyCustomScale() {
     let v = parseFloat(document.getElementById('scale-input').value);
-    if (isNaN(v) || v <= 0) v = 1;
+    if (!isFinite(v) || v <= 0) v = 1;
     applyScale(v);
+  }
+
+  function currentScale() {
+    return parseFloat(document.getElementById('scale-input').value) || 1;
   }
 
   function applyScale(m) {
     let lbl = m + '×';
-    if (m === 0.25)                      lbl = '¼×';
-    else if (m === 0.5)                  lbl = '½×';
-    else if (Math.abs(m - 0.333) < 0.01)lbl = '⅓×';
+    if (m === 0.25)                       lbl = '¼×';
+    else if (m === 0.5)                   lbl = '½×';
+    else if (Math.abs(m - 0.333) < 0.01) lbl = '⅓×';
     document.getElementById('scale-display').textContent = lbl;
+    renderIngredients(m, unitMode);
+  }
+
+  function setUnitMode(mode) {
+    unitMode = mode;
+    document.querySelectorAll('.utog').forEach(btn =>
+      btn.classList.toggle('active', btn.dataset.mode === mode));
+    renderIngredients(currentScale(), mode);
+  }
+
+  function renderIngredients(m, mode) {
     document.querySelectorAll('.ing-text').forEach(el => {
-      el.textContent = m === 1
-        ? el.dataset.orig
-        : scaleIngredient(el.dataset.orig, m);
+      el.textContent = transformIngredient(el.dataset.orig, m, mode);
     });
-  }
-
-  function scaleIngredient(text, m) {
-    const match = text.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+)\s*(.*)/);
-    if (!match) return text;
-    let [, qStr, rest] = match;
-    let num = 0;
-    if (qStr.includes('/')) {
-      const parts = qStr.trim().split(/\s+/);
-      if (parts.length === 2) {
-        const [n, d] = parts[1].split('/');
-        num = parseInt(parts[0]) + parseInt(n) / parseInt(d);
-      } else {
-        const [n, d] = parts[0].split('/');
-        num = parseInt(n) / parseInt(d);
-      }
-    } else {
-      num = parseFloat(qStr);
-    }
-    return `${fmtNum(num * m)} ${rest}`;
-  }
-
-  function fmtNum(n) {
-    n = Math.round(n * 100) / 100;
-    const w = Math.floor(n), f = n - w, t = 0.05;
-    let fs = '';
-    if      (Math.abs(f - 0.25) < t) fs = '¼';
-    else if (Math.abs(f - 0.33) < t) fs = '⅓';
-    else if (Math.abs(f - 0.5)  < t) fs = '½';
-    else if (Math.abs(f - 0.66) < t) fs = '⅔';
-    else if (Math.abs(f - 0.75) < t) fs = '¾';
-    else if (f > 0.05) return String(n);
-    if (w === 0 && fs) return fs;
-    if (w > 0  && fs) return `${w} ${fs}`;
-    return String(w);
   }
 </script>
 {% endblock %}
