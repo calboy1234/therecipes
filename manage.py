@@ -24,7 +24,7 @@ from datetime import datetime
 DB_PATH = os.environ.get("DB_PATH", "/data/database/therecipes.db")
 
 # Increment this whenever a migration is added below.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 # ── DB connection ─────────────────────────────────────────────────────────────
@@ -61,7 +61,8 @@ def cmd_initdb(args):
         rating            INTEGER DEFAULT -1,
         image_path        TEXT,
         image_hash        TEXT,
-        created_at        TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+        is_deleted        INTEGER NOT NULL DEFAULT 0
     )
     """)
 
@@ -114,6 +115,12 @@ def cmd_migrate(args):
         return
 
     # ── Future migrations go here ─────────────────────────────────────────────
+
+    if current < 2:
+        cur.execute("ALTER TABLE recipes ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_deleted ON recipes(is_deleted)")
+        cur.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (2)")
+        print("  Applied migration 2: added 'is_deleted' column (soft-delete support)")
     # Example pattern:
     #
     # if current < 2:

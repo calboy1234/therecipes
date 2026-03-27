@@ -57,6 +57,28 @@ def _parse_rating(value) -> int:
         return -1
 
 
+def _normalize_name(raw: str) -> str:
+    """
+    Convert a person-name field to consistent proper case.
+    Each word is capitalised; common name particles (de, van, von …) stay
+    lowercase unless they open the string.
+    Apostrophe contractions are handled correctly: O'Brien → O'Brien.
+    """
+    if not raw:
+        return raw
+    particles = {"de", "di", "du", "da", "del", "della", "von", "van",
+                 "der", "den", "le", "la", "los", "las", "af", "av"}
+    words = raw.strip().split()
+    result = []
+    for i, word in enumerate(words):
+        if i > 0 and word.lower() in particles:
+            result.append(word.lower())
+        else:
+            # Capitalise after apostrophe too (O'brien → O'Brien)
+            result.append("'".join(p.capitalize() for p in word.split("'")))
+    return " ".join(result)
+
+
 def _hash_file(path: str) -> str | None:
     """SHA-256 of a local file. Returns None if file doesn't exist."""
     if not os.path.isfile(path):
@@ -84,7 +106,7 @@ def recipe_list():
     category = request.args.get("category", "").strip()
     sort     = request.args.get("sort", "newest")   # newest | rating | title
 
-    conditions, params = [], []
+    conditions, params = ["r.is_deleted = 0"], []
     if q:
         conditions.append("(r.title LIKE ? OR r.ingredients LIKE ? OR r.original_author LIKE ?)")
         params += [f"%{q}%", f"%{q}%", f"%{q}%"]
@@ -124,7 +146,7 @@ def recipe_list():
 def recipe_view(recipe_id):
     db     = get_db()
     recipe = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
+        "SELECT * FROM recipes WHERE id = ? AND is_deleted = 0", (recipe_id,)
     ).fetchone()
     if not recipe:
         abort(404)
@@ -140,6 +162,13 @@ def recipe_new():
         rating = _parse_rating(request.form.get("rating", "-1"))
         image_path = request.form.get("image_path", "").strip() or None
 
+        override_author    = request.form.get("author_override")    == "1"
+        override_submitter = request.form.get("submitter_override") == "1"
+        raw_author    = request.form.get("original_author",  "").strip() or None
+        raw_submitter = request.form.get("recipe_submitter", "").strip() or None
+        author    = raw_author    if override_author    else (_normalize_name(raw_author)    if raw_author    else None)
+        submitter = raw_submitter if override_submitter else (_normalize_name(raw_submitter) if raw_submitter else None)
+
         # Compute hash if image_path is a local file
         image_hash = None
         if image_path and not image_path.startswith(("http://", "https://")):
@@ -148,12 +177,12 @@ def recipe_new():
         cur = db.execute("""
             INSERT INTO recipes
                 (title, original_author, recipe_submitter, ingredients, instructions,
-                 notes, dish_category, rating, image_path, image_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 notes, dish_category, rating, image_path, image_hash, is_deleted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         """, (
             request.form.get("title", "").strip() or None,
-            request.form.get("original_author", "").strip() or None,
-            request.form.get("recipe_submitter", "").strip() or None,
+            author,
+            submitter,
             request.form.get("ingredients", "").strip() or None,
             request.form.get("instructions", "").strip() or None,
             request.form.get("notes", "").strip() or None,
@@ -174,7 +203,7 @@ def recipe_new():
 def recipe_edit(recipe_id):
     db     = get_db()
     recipe = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
+        "SELECT * FROM recipes WHERE id = ? AND is_deleted = 0", (recipe_id,)
     ).fetchone()
     if not recipe:
         abort(404)
@@ -182,6 +211,13 @@ def recipe_edit(recipe_id):
     if request.method == "POST":
         rating     = _parse_rating(request.form.get("rating", "-1"))
         image_path = request.form.get("image_path", "").strip() or None
+
+        override_author    = request.form.get("author_override")    == "1"
+        override_submitter = request.form.get("submitter_override") == "1"
+        raw_author    = request.form.get("original_author",  "").strip() or None
+        raw_submitter = request.form.get("recipe_submitter", "").strip() or None
+        author    = raw_author    if override_author    else (_normalize_name(raw_author)    if raw_author    else None)
+        submitter = raw_submitter if override_submitter else (_normalize_name(raw_submitter) if raw_submitter else None)
 
         # Recompute hash only if image_path changed
         image_hash = recipe["image_hash"]
@@ -199,8 +235,8 @@ def recipe_edit(recipe_id):
             WHERE id=?
         """, (
             request.form.get("title", "").strip() or None,
-            request.form.get("original_author", "").strip() or None,
-            request.form.get("recipe_submitter", "").strip() or None,
+            author,
+            submitter,
             request.form.get("ingredients", "").strip() or None,
             request.form.get("instructions", "").strip() or None,
             request.form.get("notes", "").strip() or None,
@@ -221,7 +257,7 @@ def recipe_edit(recipe_id):
 @app.route("/recipe/<int:recipe_id>/delete", methods=["POST"])
 def recipe_delete(recipe_id):
     db = get_db()
-    db.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
+    db.execute("UPDATE recipes SET is_deleted = 1 WHERE id = ?", (recipe_id,))
     db.commit()
     return redirect(url_for("recipe_list"))
 
