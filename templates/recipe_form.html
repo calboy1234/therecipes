@@ -70,7 +70,8 @@
   {% endif %}
 </div>
 
-<form action="{{ '/recipes/new' if is_new else '/recipe/' + recipe['id']|string + '/edit' }}"
+<form id="recipe-form"
+      action="{{ '/recipes/new' if is_new else '/recipe/' + recipe['id']|string + '/edit' }}"
       method="post" style="max-width:760px;">
 
   <!-- ── About the recipe ── -->
@@ -130,8 +131,7 @@
         <div class="name-preview" id="author-preview"></div>
         <label class="override-row">
           <input type="checkbox" id="author_override_cb" value="1"
-                 onchange="updateNamePreview('author')"
-                 {{ 'checked' if not is_new and recipe.get('author_override') }} />
+                 onchange="updateNamePreview('author')" />
           Store exactly as typed
         </label>
         <input type="hidden" name="author_override" id="author_override" value="0" />
@@ -148,8 +148,7 @@
         <div class="name-preview" id="submitter-preview"></div>
         <label class="override-row">
           <input type="checkbox" id="submitter_override_cb" value="1"
-                 onchange="updateNamePreview('submitter')"
-                 {{ 'checked' if not is_new and recipe.get('submitter_override') }} />
+                 onchange="updateNamePreview('submitter')" />
           Store exactly as typed
         </label>
         <input type="hidden" name="submitter_override" id="submitter_override" value="0" />
@@ -217,12 +216,18 @@
 
 <script>
   // ── Star preview ───────────────────────────────────────────────────────────
+  // Uses Math.floor + half-star so adjacent values (e.g. 7 vs 8) are visually distinct.
   function updateStars(val) {
     const el = document.getElementById('rating-stars');
     const v  = parseInt(val, 10);
-    if (v < 0) { el.textContent = ''; el.style.color = ''; return; }
-    const filled = Math.round(v / 2);
-    el.textContent = '★'.repeat(filled) + '☆'.repeat(5 - filled);
+    if (v < 0) { el.innerHTML = ''; el.style.color = ''; return; }
+    const filled = Math.floor(v / 2);
+    const half   = v % 2 === 1;
+    const empty  = 5 - filled - (half ? 1 : 0);
+    el.innerHTML =
+      '<span style="color:inherit">' + '★'.repeat(filled) + '</span>' +
+      (half ? '<span style="display:inline-block;overflow:hidden;width:.55em;color:inherit">★</span>' : '') +
+      '<span style="opacity:.35">' + '☆'.repeat(empty) + '</span>';
     el.style.color = v >= 7 ? '#27ae60' : (v >= 4 ? '#f39c12' : '#c0392b');
   }
   updateStars(document.getElementById('rating').value);
@@ -278,7 +283,9 @@
   updateNamePreview('submitter');
 
   // ── Form validation ────────────────────────────────────────────────────────
-  document.querySelector('form').addEventListener('submit', function(e) {
+  // Must use #recipe-form, NOT document.querySelector('form') — that selects
+  // the nav search form first since it appears earlier in the DOM.
+  document.getElementById('recipe-form').addEventListener('submit', function(e) {
     const errors = [];
     if (!document.getElementById('title').value.trim())
       errors.push('Title is required.');
