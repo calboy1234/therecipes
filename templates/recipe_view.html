@@ -490,8 +490,8 @@
       ? afterQty.replace(/^\s+/, '').slice(unitLen)
       : afterQty;
 
-    if (!unit) return `${fmtNum(scaledQty)}${rest}`;
-
+    if (!unit) return `${fmtNum(scaledQty)}${rest ? ' ' + rest : ''}`;
+    
     if (mode === 'original') {
       return `${fmtNum(scaledQty)} ${displayUnit(scaledQty, unit)}${rest}`;
     }
