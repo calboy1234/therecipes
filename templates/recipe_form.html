@@ -246,27 +246,17 @@
   }
 
   function updateNamePreview(field) {
-    const inputId   = field === 'author' ? 'original_author'    : 'recipe_submitter';
-    const cbId      = field === 'author' ? 'author_override_cb' : 'submitter_override_cb';
-    const hiddenId  = field === 'author' ? 'author_override'    : 'submitter_override';
-    const previewId = field === 'author' ? 'author-preview'     : 'submitter-preview';
-
-    const raw      = document.getElementById(inputId).value;
-    const override = document.getElementById(cbId).checked;
-    document.getElementById(hiddenId).value = override ? '1' : '0';
-
-    const preview = document.getElementById(previewId);
+    const inputId   = field === 'author' ? 'original_author' : 'recipe_submitter';
+    const previewId = field === 'author' ? 'author-preview'  : 'submitter-preview';
+    const raw       = document.getElementById(inputId).value;
+    const preview   = document.getElementById(previewId);
     if (!raw.trim()) { preview.textContent = ''; return; }
-
-    const stored = override ? raw : normalizeName(raw);
-    if (override) {
-      preview.innerHTML = `Will store exactly: <span class="preview-val">${stored}</span>`;
-    } else if (stored === raw) {
-      preview.innerHTML = `Will store as: <span class="preview-val">${stored}</span>`;
-    } else {
-      preview.innerHTML = `Will normalize to: <span class="preview-val">${stored}</span>`;
-    }
+    const stored = normalizeName(raw);
+    preview.innerHTML = stored === raw
+      ? `Will store as: <span class="preview-val">${stored}</span>`
+      : `Will normalize to: <span class="preview-val">${stored}</span>`;
   }
+  
   updateNamePreview('author');
   updateNamePreview('submitter');
 
