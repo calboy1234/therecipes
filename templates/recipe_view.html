@@ -352,11 +352,11 @@
 
   // ── Pluralisation ─────────────────────────────────────────────────────────
   const PLURAL = {
-    cup:  q => q === 1 ? 'cup'  : 'cups',
-    pt:   q => q === 1 ? 'pt'   : 'pts',
-    qt:   q => q === 1 ? 'qt'   : 'qts',
-    gal:  q => q === 1 ? 'gal'  : 'gals',
-    lb:   q => q === 1 ? 'lb'   : 'lbs',
+    cup:  q => q > 1 ? 'cups' : 'cup',
+    pt:   q => q > 1 ? 'pts'  : 'pt',
+    qt:   q => q > 1 ? 'qts'  : 'qt',
+    gal:  q => q > 1 ? 'gals' : 'gal',
+    lb:   q => q > 1 ? 'lbs'  : 'lb',
     // These stay the same regardless of quantity
     oz: () => 'oz', tsp: () => 'tsp', tbsp: () => 'tbsp',
     ml: () => 'ml', L: () => 'L', g: () => 'g', kg: () => 'kg',
@@ -364,6 +364,54 @@
   };
   function displayUnit(qty, unit) {
     return PLURAL[unit] ? PLURAL[unit](qty) : unit;
+  }
+
+  // ── Count-noun pluralisation ───────────────────────────────────────────────
+  // Covers unrecognized "units" that are really count nouns (onion, can, etc.)
+  const COUNT_SINGULAR = {
+    pinches: 'pinch', bunches: 'bunch', batches: 'batch',
+    leaves: 'leaf', halves: 'half', loaves: 'loaf',
+    onions: 'onion', cloves: 'clove', cans: 'can', packs: 'pack',
+    packets: 'packet', bags: 'bag', bottles: 'bottle', jars: 'jar',
+    boxes: 'box', slices: 'slice', strips: 'strip', sprigs: 'sprig',
+    pieces: 'piece', sheets: 'sheet', eggs: 'egg', balls: 'ball',
+    blocks: 'block', heads: 'head', stalks: 'stalk', links: 'link',
+    fillets: 'fillet', steaks: 'steak', chops: 'chop', ribs: 'rib',
+    wedges: 'wedge', chunks: 'chunk',
+  };
+  // Singular → plural (irregular first, then regular -s fallback)
+  const COUNT_PLURAL = {
+    pinch: 'pinches', bunch: 'bunches', batch: 'batches',
+    leaf: 'leaves', half: 'halves', loaf: 'loaves',
+    onion: 'onions', clove: 'cloves', can: 'cans', pack: 'packs',
+    packet: 'packets', bag: 'bags', bottle: 'bottles', jar: 'jars',
+    box: 'boxes', slice: 'slices', strip: 'strips', sprig: 'sprigs',
+    piece: 'pieces', sheet: 'sheets', egg: 'eggs', ball: 'balls',
+    block: 'blocks', head: 'heads', stalk: 'stalks', link: 'links',
+    fillet: 'fillets', steak: 'steaks', chop: 'chops', rib: 'ribs',
+    wedge: 'wedges', chunk: 'chunks',
+  };
+
+  function pluralizeFirst(rest, qty) {
+    // rest may start with a space; preserve it
+    const spaceMatch = rest.match(/^(\s*)/);
+    const leading = spaceMatch ? spaceMatch[1] : '';
+    const body = rest.slice(leading.length);
+    const wordMatch = body.match(/^([a-zA-Z]+)(.*)/s);
+    if (!wordMatch) return rest;
+    const [, word, tail] = wordMatch;
+    const lower = word.toLowerCase();
+    let result;
+    if (qty > 1) {
+      result = COUNT_PLURAL[lower] || (COUNT_SINGULAR[lower] ? COUNT_PLURAL[COUNT_SINGULAR[lower]] : null) || lower + 's';
+    } else {
+      result = COUNT_SINGULAR[lower] || lower;
+    }
+    // Preserve original capitalisation
+    if (word[0] === word[0].toUpperCase() && word[0] !== word[0].toLowerCase()) {
+      result = result.charAt(0).toUpperCase() + result.slice(1);
+    }
+    return leading + result + tail;
   }
 
   // ── Unicode fraction table ─────────────────────────────────────────────────
@@ -481,6 +529,10 @@
 
   // ── Main transform ────────────────────────────────────────────────────────
   function transformIngredient(line, scaleMult, mode) {
+    // Guard: NUMBER-word descriptors like "10-inch" are sizes, not quantities.
+    // The number is part of the descriptor — do not scale.
+    if (/^\d+-[a-zA-Z]/.test(line)) return line;
+
     const { qty, unit, unitLen, qtyRaw } = parseIngredient(line);
     if (qty === null) return line;
 
@@ -490,7 +542,11 @@
       ? afterQty.replace(/^\s+/, '').slice(unitLen)
       : afterQty;
 
-    if (!unit) return `${fmtNum(scaledQty)}${rest ? ' ' + rest : ''}`;
+    if (!unit) {
+      // Pluralize the first count noun in the remainder (e.g. "onion", "can", "pinch")
+      const pluralized = rest ? pluralizeFirst(rest, scaledQty) : '';
+      return `${fmtNum(scaledQty)}${pluralized ? (pluralized.startsWith(' ') ? pluralized : ' ' + pluralized) : ''}`;
+    }
     
     if (mode === 'original') {
       return `${fmtNum(scaledQty)} ${displayUnit(scaledQty, unit)}${rest}`;
