@@ -32,14 +32,6 @@
     margin-top: .25rem;
   }
 
-  /* ── Name field with normalization ── */
-  .name-wrap { position: relative; }
-  .name-preview {
-    font-family: sans-serif; font-size: .75rem; margin-top: .3rem;
-    color: var(--muted); min-height: 1.1em;
-  }
-  .name-preview .preview-val { color: var(--text); font-weight: bold; }
-
   /* ── Section divider ── */
   .form-section {
     border-top: 2px solid var(--accent2);
@@ -118,24 +110,16 @@
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
     <div class="form-group">
       <label for="original_author">Original Author</label>
-      <div class="name-wrap">
-        <input type="text" id="original_author" name="original_author"
-               value="{{ recipe['original_author'] or '' if not is_new else '' }}"
-               placeholder="e.g. Grandma Rose, Julia Child"
-               oninput="updateNamePreview('author')" />
-        <div class="name-preview" id="author-preview"></div>
-      </div>
+      <input type="text" id="original_author" name="original_author"
+             value="{{ recipe['original_author'] or '' if not is_new else '' }}"
+             placeholder="e.g. Grandma Rose, Julia Child" />
       <p class="field-hint">Who created this recipe in the real world.</p>
     </div>
     <div class="form-group">
       <label for="recipe_submitter">Added By</label>
-      <div class="name-wrap">
-        <input type="text" id="recipe_submitter" name="recipe_submitter"
-               value="{{ recipe['recipe_submitter'] or '' if not is_new else '' }}"
-               placeholder="e.g. your name or username"
-               oninput="updateNamePreview('submitter')" />
-        <div class="name-preview" id="submitter-preview"></div>
-      </div>
+      <input type="text" id="recipe_submitter" name="recipe_submitter"
+             value="{{ recipe['recipe_submitter'] or '' if not is_new else '' }}"
+             placeholder="e.g. your name or username" />
       <p class="field-hint">Who added it to this database.</p>
     </div>
   </div>
@@ -228,32 +212,6 @@
     img.onerror = () => img.classList.remove('visible');
   }
   previewImage(document.getElementById('image_path').value);
-
-  // ── Name normalization ─────────────────────────────────────────────────────
-  const NAME_PARTICLES = new Set(['de','di','du','da','del','della','von','van',
-                                   'der','den','le','la','los','las','af','av']);
-  function normalizeName(raw) {
-    if (!raw.trim()) return '';
-    return raw.trim().split(/\s+/).map((word, i) => {
-      if (i > 0 && NAME_PARTICLES.has(word.toLowerCase())) return word.toLowerCase();
-      return word.split("'").map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join("'");
-    }).join(' ');
-  }
-
-  function updateNamePreview(field) {
-    const inputId   = field === 'author' ? 'original_author' : 'recipe_submitter';
-    const previewId = field === 'author' ? 'author-preview'  : 'submitter-preview';
-    const raw       = document.getElementById(inputId).value;
-    const preview   = document.getElementById(previewId);
-    if (!raw.trim()) { preview.textContent = ''; return; }
-    const stored = normalizeName(raw);
-    preview.innerHTML = stored === raw
-      ? `Will store as: <span class="preview-val">${stored}</span>`
-      : `Will normalize to: <span class="preview-val">${stored}</span>`;
-  }
-  
-  updateNamePreview('author');
-  updateNamePreview('submitter');
 
   // ── Form validation ────────────────────────────────────────────────────────
   // Must use #recipe-form, NOT document.querySelector('form') — that selects
