@@ -162,12 +162,10 @@ def recipe_new():
         rating = _parse_rating(request.form.get("rating", "-1"))
         image_path = request.form.get("image_path", "").strip() or None
 
-        override_author    = request.form.get("author_override")    == "1"
-        override_submitter = request.form.get("submitter_override") == "1"
         raw_author    = request.form.get("original_author",  "").strip() or None
         raw_submitter = request.form.get("recipe_submitter", "").strip() or None
-        author    = raw_author    if override_author    else (_normalize_name(raw_author)    if raw_author    else None)
-        submitter = raw_submitter if override_submitter else (_normalize_name(raw_submitter) if raw_submitter else None)
+        author    = _normalize_name(raw_author)    if raw_author    else None
+        submitter = _normalize_name(raw_submitter) if raw_submitter else None
 
         # Compute hash if image_path is a local file
         image_hash = None
@@ -211,13 +209,11 @@ def recipe_edit(recipe_id):
     if request.method == "POST":
         rating     = _parse_rating(request.form.get("rating", "-1"))
         image_path = request.form.get("image_path", "").strip() or None
-
-        override_author    = request.form.get("author_override")    == "1"
-        override_submitter = request.form.get("submitter_override") == "1"
+        
         raw_author    = request.form.get("original_author",  "").strip() or None
         raw_submitter = request.form.get("recipe_submitter", "").strip() or None
-        author    = raw_author    if override_author    else (_normalize_name(raw_author)    if raw_author    else None)
-        submitter = raw_submitter if override_submitter else (_normalize_name(raw_submitter) if raw_submitter else None)
+        author    = _normalize_name(raw_author)    if raw_author    else None
+        submitter = _normalize_name(raw_submitter) if raw_submitter else None
 
         # Recompute hash only if image_path changed
         image_hash = recipe["image_hash"]
