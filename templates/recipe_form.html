@@ -104,42 +104,6 @@
   }
 </style>
 
-<!-- ── Row template (hidden, cloned by JS) ── -->
-<template id="ing-row-tpl">
-  <div class="ing-row">
-    <input type="text" class="ing-qty"  placeholder="e.g. 1½" />
-    <select class="ing-unit">
-      <option value="">— unit —</option>
-      <optgroup label="Volume">
-        <option value="tsp">tsp</option>
-        <option value="tbsp">tbsp</option>
-        <option value="cup">cup</option>
-        <option value="fl oz">fl oz</option>
-        <option value="pt">pt</option>
-        <option value="qt">qt</option>
-        <option value="gal">gal</option>
-        <option value="ml">ml</option>
-        <option value="L">L</option>
-      </optgroup>
-      <optgroup label="Weight">
-        <option value="oz">oz</option>
-        <option value="lb">lb</option>
-        <option value="g">g</option>
-        <option value="kg">kg</option>
-      </optgroup>
-      <optgroup label="Other">
-        <option value="pinch">pinch</option>
-        <option value="piece">piece</option>
-        <option value="to taste">to taste</option>
-        <option value="as needed">as needed</option>
-      </optgroup>
-    </select>
-    <input type="text" class="ing-name" placeholder="Ingredient name *" />
-    <input type="text" class="ing-prep" placeholder="Prep note (optional)" />
-    <button type="button" class="ing-remove" title="Remove row">✕</button>
-  </div>
-</template>
-
 <!-- ── Page header ── -->
 <div class="gap" style="margin-bottom:1.25rem;">
   {% if is_new %}
@@ -341,17 +305,81 @@
     return isFinite(n) ? n : null;
   }
 
+  // ── Unit options (single source of truth) ────────────────────────────────
+  const UNIT_GROUPS = [
+    { label: 'Volume', options: [
+      { value: 'tsp',       label: 'tsp' },
+      { value: 'tbsp',      label: 'tbsp' },
+      { value: 'cup',       label: 'cup' },
+      { value: 'fl oz',     label: 'fl oz' },
+      { value: 'pt',        label: 'pt' },
+      { value: 'qt',        label: 'qt' },
+      { value: 'gal',       label: 'gal' },
+      { value: 'ml',        label: 'ml' },
+      { value: 'L',         label: 'L' },
+    ]},
+    { label: 'Weight', options: [
+      { value: 'oz',        label: 'oz' },
+      { value: 'lb',        label: 'lb' },
+      { value: 'g',         label: 'g' },
+      { value: 'kg',        label: 'kg' },
+    ]},
+    { label: 'Other', options: [
+      { value: 'pinch',     label: 'pinch' },
+      { value: 'piece',     label: 'piece' },
+      { value: 'to taste',  label: 'to taste' },
+      { value: 'as needed', label: 'as needed' },
+    ]},
+  ];
+
+  function buildUnitSelect(selectedUnit) {
+    const sel = document.createElement('select');
+    sel.className = 'ing-unit';
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = '— unit —';
+    sel.appendChild(blank);
+    UNIT_GROUPS.forEach(group => {
+      const grp = document.createElement('optgroup');
+      grp.label = group.label;
+      group.options.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.value; opt.textContent = o.label;
+        grp.appendChild(opt);
+      });
+      sel.appendChild(grp);
+    });
+    sel.value = selectedUnit || '';
+    return sel;
+  }
+
   // ── Ingredient rows ───────────────────────────────────────────────────────
   function addIngredientRow(qty = '', unit = '', name = '', prep = '') {
-    const tpl = document.getElementById('ing-row-tpl');
-    const row = tpl.content.cloneNode(true).querySelector('.ing-row');
-    row.querySelector('.ing-qty').value  = qty;
-    row.querySelector('.ing-unit').value = unit;
-    row.querySelector('.ing-name').value = name;
-    row.querySelector('.ing-prep').value = prep;
-    row.querySelector('.ing-remove').addEventListener('click', function () {
-      row.remove();
-    });
+    const row = document.createElement('div');
+    row.className = 'ing-row';
+
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'text'; qtyInput.className = 'ing-qty';
+    qtyInput.placeholder = 'e.g. 1½'; qtyInput.value = qty;
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text'; nameInput.className = 'ing-name';
+    nameInput.placeholder = 'Ingredient name *'; nameInput.value = name;
+
+    const prepInput = document.createElement('input');
+    prepInput.type = 'text'; prepInput.className = 'ing-prep';
+    prepInput.placeholder = 'Prep note (optional)'; prepInput.value = prep;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button'; removeBtn.className = 'ing-remove';
+    removeBtn.title = 'Remove row'; removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => row.remove());
+
+    row.appendChild(qtyInput);
+    row.appendChild(buildUnitSelect(unit));
+    row.appendChild(nameInput);
+    row.appendChild(prepInput);
+    row.appendChild(removeBtn);
+
     document.getElementById('ing-rows').appendChild(row);
     return row;
   }
@@ -399,10 +427,12 @@
       errors.push('Category must be selected.');
 
     const ingredients = serializeIngredients();
-    if (ingredients.length === 0)
+    if (ingredients.length === 0) {
       errors.push('At least one ingredient with a name is required.');
-    else
+    } else {
+      // Set the hidden field regardless of other errors so it survives re-submission
       document.getElementById('ingredients').value = JSON.stringify(ingredients);
+    }
 
     if (!document.getElementById('instructions').value.trim())
       errors.push('Instructions are required.');
