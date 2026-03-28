@@ -129,12 +129,6 @@
                placeholder="e.g. Grandma Rose, Julia Child"
                oninput="updateNamePreview('author')" />
         <div class="name-preview" id="author-preview"></div>
-        <label class="override-row">
-          <input type="checkbox" id="author_override_cb" value="1"
-                 onchange="updateNamePreview('author')" />
-          Store exactly as typed
-        </label>
-        <input type="hidden" name="author_override" id="author_override" value="0" />
       </div>
       <p class="field-hint">Who created this recipe in the real world.</p>
     </div>
@@ -146,12 +140,6 @@
                placeholder="e.g. your name or username"
                oninput="updateNamePreview('submitter')" />
         <div class="name-preview" id="submitter-preview"></div>
-        <label class="override-row">
-          <input type="checkbox" id="submitter_override_cb" value="1"
-                 onchange="updateNamePreview('submitter')" />
-          Store exactly as typed
-        </label>
-        <input type="hidden" name="submitter_override" id="submitter_override" value="0" />
       </div>
       <p class="field-hint">Who added it to this database.</p>
     </div>
