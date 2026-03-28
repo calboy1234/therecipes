@@ -45,7 +45,100 @@
     text-transform: uppercase;
     color: var(--muted);
   }
+
+  /* ── Ingredient rows ── */
+  #ing-rows {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+    margin-bottom: .6rem;
+  }
+
+  .ing-row {
+    display: grid;
+    grid-template-columns: 80px 120px 1fr 1fr 32px;
+    gap: .4rem;
+    align-items: center;
+  }
+
+  .ing-row input, .ing-row select {
+    width: 100%;
+    padding: .42rem .6rem;
+    font-size: .9rem;
+  }
+
+  .ing-remove {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--muted);
+    cursor: pointer;
+    font-size: .9rem;
+    line-height: 1;
+    padding: .35rem .45rem;
+    transition: color .15s, border-color .15s;
+  }
+  .ing-remove:hover { color: #c0392b; border-color: #f5b7b1; }
+
+  .ing-header {
+    display: grid;
+    grid-template-columns: 80px 120px 1fr 1fr 32px;
+    gap: .4rem;
+    font-family: sans-serif;
+    font-size: .73rem;
+    color: var(--muted);
+    font-weight: bold;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin-bottom: .2rem;
+    padding: 0 .1rem;
+  }
+
+  @media (max-width: 600px) {
+    .ing-row    { grid-template-columns: 70px 1fr 32px; }
+    .ing-header { grid-template-columns: 70px 1fr 32px; }
+    .ing-row .ing-unit { grid-column: 1; }
+    .ing-row .ing-qty  { grid-column: 1; }
+    .ing-row .ing-name { grid-column: 2; }
+    .ing-row .ing-prep { grid-column: 1 / -2; }
+  }
 </style>
+
+<!-- ── Row template (hidden, cloned by JS) ── -->
+<template id="ing-row-tpl">
+  <div class="ing-row">
+    <input type="text" class="ing-qty"  placeholder="e.g. 1½" />
+    <select class="ing-unit">
+      <option value="">— unit —</option>
+      <optgroup label="Volume">
+        <option value="tsp">tsp</option>
+        <option value="tbsp">tbsp</option>
+        <option value="cup">cup</option>
+        <option value="fl oz">fl oz</option>
+        <option value="pt">pt</option>
+        <option value="qt">qt</option>
+        <option value="gal">gal</option>
+        <option value="ml">ml</option>
+        <option value="L">L</option>
+      </optgroup>
+      <optgroup label="Weight">
+        <option value="oz">oz</option>
+        <option value="lb">lb</option>
+        <option value="g">g</option>
+        <option value="kg">kg</option>
+      </optgroup>
+      <optgroup label="Other">
+        <option value="pinch">pinch</option>
+        <option value="piece">piece</option>
+        <option value="to taste">to taste</option>
+        <option value="as needed">as needed</option>
+      </optgroup>
+    </select>
+    <input type="text" class="ing-name" placeholder="Ingredient name *" />
+    <input type="text" class="ing-prep" placeholder="Prep note (optional)" />
+    <button type="button" class="ing-remove" title="Remove row">✕</button>
+  </div>
+</template>
 
 <!-- ── Page header ── -->
 <div class="gap" style="margin-bottom:1.25rem;">
@@ -128,10 +221,31 @@
   <div class="form-section">Ingredients &amp; Instructions</div>
 
   <div class="form-group">
-    <label for="ingredients">Ingredients</label>
-    <textarea id="ingredients" name="ingredients" rows="12"
-              placeholder="One ingredient per line, e.g.:&#10;2 cups all-purpose flour&#10;1 tsp baking soda&#10;½ cup butter, softened">{{ recipe['ingredients'] or '' if not is_new else '' }}</textarea>
-    <p class="field-hint">One ingredient per line. Include quantity and unit.</p>
+    <label>Ingredients</label>
+
+    <div class="ing-header">
+      <span>Qty</span>
+      <span>Unit</span>
+      <span>Ingredient name</span>
+      <span>Prep note</span>
+      <span></span>
+    </div>
+
+    <div id="ing-rows"></div>
+
+    <button type="button" class="btn btn-outline" onclick="addIngredientRow()"
+            style="font-size:.84rem; padding:.35rem .85rem;">
+      + Add Ingredient
+    </button>
+
+    <p class="field-hint" style="margin-top:.45rem;">
+      Qty and unit are optional — leave them blank for items like "salt, to taste" or "2 eggs"
+      (enter 2 in Qty, no unit, "eggs" as the name).
+      You can type fractions like <code style="font-size:.75rem;">1/2</code> or decimals.
+    </p>
+
+    <!-- Hidden field that receives the JSON on submit -->
+    <input type="hidden" id="ingredients" name="ingredients" />
   </div>
 
   <div class="form-group">
@@ -182,8 +296,7 @@
 </form>
 
 <script>
-  // ── Star preview ───────────────────────────────────────────────────────────
-  // Uses Math.floor + half-star so adjacent values (e.g. 7 vs 8) are visually distinct.
+  // ── Star preview ──────────────────────────────────────────────────────────
   function updateStars(val) {
     const el = document.getElementById('rating-stars');
     const v  = parseInt(val, 10);
@@ -199,7 +312,7 @@
   }
   updateStars(document.getElementById('rating').value);
 
-  // ── Image preview ──────────────────────────────────────────────────────────
+  // ── Image preview ─────────────────────────────────────────────────────────
   function previewImage(val) {
     const img = document.getElementById('img-preview');
     const v   = val.trim();
@@ -213,19 +326,87 @@
   }
   previewImage(document.getElementById('image_path').value);
 
-  // ── Form validation ────────────────────────────────────────────────────────
-  // Must use #recipe-form, NOT document.querySelector('form') — that selects
-  // the nav search form first since it appears earlier in the DOM.
-  document.getElementById('recipe-form').addEventListener('submit', function(e) {
+  // ── Qty parser — accepts "1/2", "1 1/2", decimals, integers ──────────────
+  function parseQtyStr(s) {
+    s = s.trim();
+    if (!s) return null;
+    // Mixed number: "1 1/2"
+    const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+    if (mixed) return parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3]);
+    // Simple fraction: "3/4"
+    const frac = s.match(/^(\d+)\/(\d+)$/);
+    if (frac) return parseInt(frac[1]) / parseInt(frac[2]);
+    // Decimal / integer
+    const n = parseFloat(s);
+    return isFinite(n) ? n : null;
+  }
+
+  // ── Ingredient rows ───────────────────────────────────────────────────────
+  function addIngredientRow(qty = '', unit = '', name = '', prep = '') {
+    const tpl = document.getElementById('ing-row-tpl');
+    const row = tpl.content.cloneNode(true).querySelector('.ing-row');
+    row.querySelector('.ing-qty').value  = qty;
+    row.querySelector('.ing-unit').value = unit;
+    row.querySelector('.ing-name').value = name;
+    row.querySelector('.ing-prep').value = prep;
+    row.querySelector('.ing-remove').addEventListener('click', function () {
+      row.remove();
+    });
+    document.getElementById('ing-rows').appendChild(row);
+    return row;
+  }
+
+  // ── Pre-populate rows from existing data ──────────────────────────────────
+  (function loadIngredients() {
+    {% if not is_new and recipe['ingredients'] %}
+    const raw = {{ recipe['ingredients'] | tojson }};
+    const parsed = JSON.parse(raw);
+    parsed.forEach(ing => {
+      const qtyDisplay = ing.qty !== null && ing.qty !== undefined ? String(ing.qty) : '';
+      addIngredientRow(qtyDisplay, ing.unit || '', ing.name || '', ing.prep || '');
+    });
+    {% endif %}
+    // Always start with at least one empty row
+    if (document.getElementById('ing-rows').children.length === 0) {
+      addIngredientRow();
+    }
+  })();
+
+  // ── Collect rows → JSON for hidden field ──────────────────────────────────
+  function serializeIngredients() {
+    const rows = [...document.querySelectorAll('#ing-rows .ing-row')];
+    return rows
+      .map(row => {
+        const qtyVal = row.querySelector('.ing-qty').value.trim();
+        return {
+          qty:  parseQtyStr(qtyVal),
+          unit: row.querySelector('.ing-unit').value,
+          name: row.querySelector('.ing-name').value.trim(),
+          prep: row.querySelector('.ing-prep').value.trim(),
+        };
+      })
+      .filter(ing => ing.name); // skip rows with no ingredient name
+  }
+
+  // ── Form validation + serialization ──────────────────────────────────────
+  // Uses #recipe-form (not querySelector('form')) to avoid matching the nav search form.
+  document.getElementById('recipe-form').addEventListener('submit', function (e) {
     const errors = [];
+
     if (!document.getElementById('title').value.trim())
       errors.push('Title is required.');
     if (!document.getElementById('dish_category').value)
       errors.push('Category must be selected.');
-    if (!document.getElementById('ingredients').value.trim())
-      errors.push('Ingredients are required.');
+
+    const ingredients = serializeIngredients();
+    if (ingredients.length === 0)
+      errors.push('At least one ingredient with a name is required.');
+    else
+      document.getElementById('ingredients').value = JSON.stringify(ingredients);
+
     if (!document.getElementById('instructions').value.trim())
       errors.push('Instructions are required.');
+
     if (errors.length) {
       e.preventDefault();
       alert(errors.join('\n'));
