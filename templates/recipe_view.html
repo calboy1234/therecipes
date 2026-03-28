@@ -207,21 +207,8 @@
       </div>
     </div>
 
-    <div id="ingredients-list">
-      {% if recipe['ingredients'] %}
-        {% for line in recipe['ingredients'].split('\n') %}
-          {% set line = line.strip() %}
-          {% if line %}
-            <label class="ingredient-item">
-              <input type="checkbox" class="no-print" onchange="toggleCheck(this)" />
-              <span class="ing-text" data-orig="{{ line }}">{{ line }}</span>
-            </label>
-          {% endif %}
-        {% endfor %}
-      {% else %}
-        <p class="muted">No ingredients listed.</p>
-      {% endif %}
-    </div>
+    <!-- JS populates this div -->
+    <div id="ingredients-list"></div>
   </div>
 
   <!-- Instructions -->
@@ -234,7 +221,6 @@
       <div class="card muted" style="font-style:italic; white-space:pre-wrap;">{{ recipe['notes'] }}</div>
     {% endif %}
 
-    <!-- Submitter / hash info (discreet) -->
     {% if recipe['image_hash'] %}
       <p class="muted" style="margin-top:1.5rem; font-size:.73rem;">
         Image SHA-256: <code style="font-size:.7rem;">{{ recipe['image_hash'][:16] }}…</code>
@@ -256,41 +242,46 @@
 </div>
 
 <script>
-  // ── Checkbox ──────────────────────────────────────────────────────────────
-  // Clicking anywhere on the <label> natively toggles the checkbox;
-  // this handler just syncs the strikethrough class.
+  // ── Checkbox toggle ───────────────────────────────────────────────────────
   function toggleCheck(cb) {
     cb.closest('.ingredient-item').classList.toggle('checked', cb.checked);
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  //  INGREDIENT ENGINE
+  //  INGREDIENT DATA
+  //  The server embeds the raw JSON string; we parse it here.
+  //  Falls back to legacy newline-separated text for old recipes.
   // ════════════════════════════════════════════════════════════════════════
 
-  // ── Unit alias table ──────────────────────────────────────────────────────
-  const UNIT_ALIASES = {
-    'ml': 'ml', 'milliliter': 'ml', 'milliliters': 'ml',
-    'millilitre': 'ml', 'millilitres': 'ml',
-    'l': 'L', 'liter': 'L', 'liters': 'L', 'litre': 'L', 'litres': 'L',
-    'g': 'g', 'gram': 'g', 'grams': 'g', 'gramme': 'g', 'grammes': 'g',
-    'kg': 'kg', 'kilogram': 'kg', 'kilograms': 'kg',
-    'kilogramme': 'kg', 'kilogrammes': 'kg',
-    'tsp': 'tsp', 'teaspoon': 'tsp', 'teaspoons': 'tsp',
-    'tea spoon': 'tsp', 'tea spoons': 'tsp',
-    'tbsp': 'tbsp', 'tablespoon': 'tbsp', 'tablespoons': 'tbsp',
-    'tbl': 'tbsp', 'tbs': 'tbsp',
-    'cup': 'cup', 'cups': 'cup',
-    'fl oz': 'fl oz', 'fluid oz': 'fl oz',
-    'fluid ounce': 'fl oz', 'fluid ounces': 'fl oz',
-    'pt': 'pt', 'pint': 'pt', 'pints': 'pt',
-    'qt': 'qt', 'quart': 'qt', 'quarts': 'qt',
-    'gal': 'gal', 'gallon': 'gal', 'gallons': 'gal',
-    'oz': 'oz', 'ounce': 'oz', 'ounces': 'oz',
-    'lb': 'lb', 'lbs': 'lb', 'pound': 'lb', 'pounds': 'lb',
-  };
-  const ALIAS_KEYS = Object.keys(UNIT_ALIASES).sort((a, b) => b.length - a.length);
+  const INGREDIENTS_RAW = {{ recipe['ingredients'] | tojson if recipe['ingredients'] else 'null' }};
 
-  // ── Conversion tables ─────────────────────────────────────────────────────
+  let INGREDIENTS = [];
+  (function parseIngredients() {
+    if (!INGREDIENTS_RAW) return;
+    INGREDIENTS = JSON.parse(INGREDIENTS_RAW);
+  })();
+
+  // ── Build ingredient DOM ──────────────────────────────────────────────────
+  (function buildIngredientList() {
+    const list = document.getElementById('ingredients-list');
+    if (!INGREDIENTS.length) {
+      list.innerHTML = '<p class="muted">No ingredients listed.</p>';
+      return;
+    }
+    INGREDIENTS.forEach((_, i) => {
+      const label = document.createElement('label');
+      label.className = 'ingredient-item';
+      label.innerHTML =
+        '<input type="checkbox" class="no-print" onchange="toggleCheck(this)" />' +
+        '<span class="ing-text" data-idx="' + i + '"></span>';
+      list.appendChild(label);
+    });
+  })();
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  UNIT CONVERSION TABLES
+  // ════════════════════════════════════════════════════════════════════════
+
   const VOL_ML = {
     ml: 1, L: 1000,
     tsp: 4.92892, tbsp: 14.7868, cup: 236.588,
@@ -298,13 +289,8 @@
   };
   const WGHT_G = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
 
-  // ── Best-unit selectors ───────────────────────────────────────────────────
-  function bestMetricVol(ml) {
-    return ml >= 950 ? [ml / 1000, 'L'] : [ml, 'ml'];
-  }
-  function bestMetricWght(g) {
-    return g >= 950 ? [g / 1000, 'kg'] : [g, 'g'];
-  }
+  function bestMetricVol(ml)  { return ml  >= 950 ? [ml / 1000, 'L']  : [ml,  'ml']; }
+  function bestMetricWght(g)  { return g   >= 950 ? [g / 1000,  'kg'] : [g,   'g'];  }
   function bestImpVol(ml) {
     const tsp  = ml / VOL_ML.tsp;  if (tsp  < 3)  return [tsp,  'tsp'];
     const tbsp = ml / VOL_ML.tbsp; if (tbsp < 4)  return [tbsp, 'tbsp'];
@@ -317,7 +303,10 @@
     return oz < 16 ? [oz, 'oz'] : [g / WGHT_G.lb, 'lb'];
   }
 
-  // ── Number formatting ─────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  //  NUMBER FORMATTING
+  // ════════════════════════════════════════════════════════════════════════
+
   const NICE_FRACS = [
     [0.125, '⅛'], [0.25, '¼'], [0.333, '⅓'], [0.375, '⅜'],
     [0.5, '½'], [0.625, '⅝'], [0.667, '⅔'], [0.75, '¾'], [0.875, '⅞'],
@@ -329,244 +318,108 @@
     const whole = Math.floor(n);
     const frac  = n - whole;
 
-    // Snap fractional part to a nice fraction symbol
+    // Snap to integer if fractional part is tiny
+    if (frac < FRAC_SNAP || Math.abs(frac - 1) < FRAC_SNAP)
+      return String(frac >= 1 - FRAC_SNAP ? whole + 1 : whole);
+
+    // Snap to a nice fraction symbol
     let bestDist = FRAC_SNAP, bestSym = null;
     for (const [val, sym] of NICE_FRACS) {
       const d = Math.abs(frac - val);
       if (d < bestDist) { bestDist = d; bestSym = sym; }
     }
-
-    // Snap to integer if fractional part is tiny
-    if (frac < FRAC_SNAP || Math.abs(frac - 1) < FRAC_SNAP) {
-      return String(frac >= 1 - FRAC_SNAP ? whole + 1 : whole);
-    }
-
-    // Render as mixed number or pure fraction
     if (bestSym) return whole === 0 ? bestSym : `${whole} ${bestSym}`;
 
-    // Fall back to decimal — use Number() cast to strip trailing zeros cleanly
+    // Decimal fallback
     if (n < 1)  return String(Number(n.toFixed(2)));
     if (n < 10) return String(Number(n.toFixed(1)));
     return String(Math.round(n));
   }
 
-  // ── Pluralisation ─────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  //  UNIT DISPLAY (pluralisation)
+  // ════════════════════════════════════════════════════════════════════════
+
   const PLURAL = {
-    cup:  q => q > 1 ? 'cups' : 'cup',
-    pt:   q => q > 1 ? 'pts'  : 'pt',
-    qt:   q => q > 1 ? 'qts'  : 'qt',
-    gal:  q => q > 1 ? 'gals' : 'gal',
-    lb:   q => q > 1 ? 'lbs'  : 'lb',
-    // These stay the same regardless of quantity
+    cup:  q => q > 1 ? 'cups'    : 'cup',
+    pt:   q => q > 1 ? 'pts'     : 'pt',
+    qt:   q => q > 1 ? 'qts'     : 'qt',
+    gal:  q => q > 1 ? 'gals'    : 'gal',
+    lb:   q => q > 1 ? 'lbs'     : 'lb',
+    pinch: q => q > 1 ? 'pinches' : 'pinch',
+    piece: q => q > 1 ? 'pieces'  : 'piece',
+    // Invariant units
     oz: () => 'oz', tsp: () => 'tsp', tbsp: () => 'tbsp',
     ml: () => 'ml', L: () => 'L', g: () => 'g', kg: () => 'kg',
     'fl oz': () => 'fl oz',
   };
+
   function displayUnit(qty, unit) {
     return PLURAL[unit] ? PLURAL[unit](qty) : unit;
   }
 
-  // ── Count-noun pluralisation ───────────────────────────────────────────────
-  // Covers unrecognized "units" that are really count nouns (onion, can, etc.)
-  const COUNT_SINGULAR = {
-    pinches: 'pinch', bunches: 'bunch', batches: 'batch',
-    leaves: 'leaf', halves: 'half', loaves: 'loaf',
-    onions: 'onion', cloves: 'clove', cans: 'can', packs: 'pack',
-    packets: 'packet', bags: 'bag', bottles: 'bottle', jars: 'jar',
-    boxes: 'box', slices: 'slice', strips: 'strip', sprigs: 'sprig',
-    pieces: 'piece', sheets: 'sheet', eggs: 'egg', balls: 'ball',
-    blocks: 'block', heads: 'head', stalks: 'stalk', links: 'link',
-    fillets: 'fillet', steaks: 'steak', chops: 'chop', ribs: 'rib',
-    wedges: 'wedge', chunks: 'chunk',
-  };
-  // Singular → plural (irregular first, then regular -s fallback)
-  const COUNT_PLURAL = {
-    pinch: 'pinches', bunch: 'bunches', batch: 'batches',
-    leaf: 'leaves', half: 'halves', loaf: 'loaves',
-    onion: 'onions', clove: 'cloves', can: 'cans', pack: 'packs',
-    packet: 'packets', bag: 'bags', bottle: 'bottles', jar: 'jars',
-    box: 'boxes', slice: 'slices', strip: 'strips', sprig: 'sprigs',
-    piece: 'pieces', sheet: 'sheets', egg: 'eggs', ball: 'balls',
-    block: 'blocks', head: 'heads', stalk: 'stalks', link: 'links',
-    fillet: 'fillets', steak: 'steaks', chop: 'chops', rib: 'ribs',
-    wedge: 'wedges', chunk: 'chunks',
-  };
+  // ════════════════════════════════════════════════════════════════════════
+  //  RENDER — turns one structured ingredient into a display string
+  // ════════════════════════════════════════════════════════════════════════
 
-  function pluralizeFirst(rest, qty) {
-    // rest may start with a space; preserve it
-    const spaceMatch = rest.match(/^(\s*)/);
-    const leading = spaceMatch ? spaceMatch[1] : '';
-    const body = rest.slice(leading.length);
-    const wordMatch = body.match(/^([a-zA-Z]+)(.*)/s);
-    if (!wordMatch) return rest;
-    const [, word, tail] = wordMatch;
-    const lower = word.toLowerCase();
-    let result;
-    if (qty > 1) {
-      result = COUNT_PLURAL[lower] || (COUNT_SINGULAR[lower] ? COUNT_PLURAL[COUNT_SINGULAR[lower]] : null) || lower + 's';
-    } else {
-      result = COUNT_SINGULAR[lower] || lower;
-    }
-    // Preserve original capitalisation
-    if (word[0] === word[0].toUpperCase() && word[0] !== word[0].toLowerCase()) {
-      result = result.charAt(0).toUpperCase() + result.slice(1);
-    }
-    return leading + result + tail;
-  }
+  function renderIngredient(ing, scale, mode) {
+    const qty  = ing.qty;
+    const unit = ing.unit  || '';
+    const name = ing.name  || '';
+    const prep = ing.prep  || '';
+    const suffix = prep ? `, ${prep}` : '';
 
-  // ── Unicode fraction table ─────────────────────────────────────────────────
-  // Maps a unicode fraction char → its decimal value.
-  const UNICODE_FRACS = {
-    '½': 0.5,  '⅓': 1/3,  '⅔': 2/3,
-    '¼': 0.25, '¾': 0.75,
-    '⅛': 0.125,'⅜': 0.375,'⅝': 0.625,'⅞': 0.875,
-    '⅙': 1/6,  '⅚': 5/6,
-    '⅕': 0.2,  '⅖': 0.4,  '⅗': 0.6,  '⅘': 0.8,
-  };
-  const UNICODE_FRAC_RE = new RegExp(`^([${Object.keys(UNICODE_FRACS).join('')}])`);
-
-  // ── Written-number lookup ─────────────────────────────────────────────────
-  const WORD_NUMS = {
-    'a quarter': 0.25, 'a half': 0.5,
-    'a': 1, 'an': 1,
-    'half': 0.5, 'quarter': 0.25,
-    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14,
-    'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18,
-    'nineteen': 19, 'twenty': 20,
-  };
-  const WORD_NUM_KEYS = Object.keys(WORD_NUMS).sort((a, b) => b.length - a.length);
-
-  function parseWordNum(line) {
-    const lower = line.toLowerCase();
-    for (const word of WORD_NUM_KEYS) {
-      if (!lower.startsWith(word)) continue;
-      const next = lower[word.length];
-      if (next !== undefined && !/[\s,]/.test(next)) continue;
-      return { num: WORD_NUMS[word], len: word.length };
-    }
-    return null;
-  }
-
-  // ── Unit scanning helper (shared) ─────────────────────────────────────────
-  function scanUnit(afterQty) {
-    const lower = afterQty.toLowerCase();
-    for (const alias of ALIAS_KEYS) {
-      if (!lower.startsWith(alias)) continue;
-      const nc = lower[alias.length];
-      if (nc !== undefined && /[a-z]/.test(nc)) continue;
-      return { unit: UNIT_ALIASES[alias], unitLen: alias.length };
-    }
-    return { unit: null, unitLen: 0 };
-  }
-
-  // ── Parser ────────────────────────────────────────────────────────────────
-  // Returns { qty, unit, unitLen, qtyRaw }
-  function parseIngredient(line) {
-
-    // 1. Digit-first: mixed fraction (space OR hyphen), simple fraction, decimal, integer
-    //    Handles: "1 1/2", "1-1/2", "3/4", "1.5", "2"
-    const qm = line.match(/^(\d+[-\s]\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+)/);
-    if (qm) {
-      const qtyRaw = qm[1];
-      let qty = 0;
-      if (qtyRaw.includes('/')) {
-        // Split on space or hyphen to separate whole part from fraction part
-        const parts = qtyRaw.trim().split(/[-\s]/);
-        if (parts.length === 2) {
-          const [n, d] = parts[1].split('/');
-          qty = parseInt(parts[0]) + parseInt(n) / parseInt(d);
-        } else {
-          const [n, d] = parts[0].split('/');
-          qty = parseInt(n) / parseInt(d);
-        }
-      } else {
-        qty = parseFloat(qtyRaw);
-      }
-      // Check for a unicode fraction immediately after (e.g. "1½")
-      const afterDigit = line.slice(qtyRaw.length);
-      const um = afterDigit.match(UNICODE_FRAC_RE);
-      let totalQty = qty, totalRaw = qtyRaw;
-      if (um) {
-        totalQty += UNICODE_FRACS[um[1]];
-        totalRaw  = qtyRaw + um[1];
-      }
-      const afterQty = line.slice(totalRaw.length).replace(/^\s+/, '');
-      const { unit, unitLen } = scanUnit(afterQty);
-      return { qty: totalQty, unit, unitLen, qtyRaw: totalRaw };
+    // "to taste" / "as needed" — qty is irrelevant, just label the ingredient
+    if (unit === 'to taste' || unit === 'as needed') {
+      return `${name}, ${unit}${prep ? ', ' + prep : ''}`;
     }
 
-    // 2. Pure unicode fraction at start: "½ cup", "¾ tsp"
-    const ufm = line.match(UNICODE_FRAC_RE);
-    if (ufm) {
-      const qtyRaw  = ufm[1];
-      const qty     = UNICODE_FRACS[ufm[1]];
-      const afterQty = line.slice(qtyRaw.length).replace(/^\s+/, '');
-      const { unit, unitLen } = scanUnit(afterQty);
-      return { qty, unit, unitLen, qtyRaw };
+    // No qty → plain name (e.g. legacy lines, or intentionally qty-less)
+    if (qty === null || qty === undefined || qty === '') {
+      return name + suffix;
     }
 
-    // 3. Written number: "two eggs", "a pinch", "half a cup"
-    const wn = parseWordNum(line);
-    if (wn) {
-      const qtyRaw   = line.slice(0, wn.len);
-      let afterQty   = line.slice(wn.len).replace(/^\s+/, '');
-      
-      // NEW: Strip leading "a " or "an " so "half a cup" resolves to "cup"
-      afterQty = afterQty.replace(/^(a|an)\s+/i, ''); 
+    const scaledQty = qty * scale;
 
-      const { unit, unitLen } = scanUnit(afterQty);
-      
-      // Pass the un-stripped string as the raw quantity so we don't lose the "a " if it wasn't a unit
-      const finalQtyRaw = line.slice(0, line.length - afterQty.length);
-      
-      return { qty: wn.num, unit, unitLen, qtyRaw: finalQtyRaw };
-    }
-
-    return { qty: null, unit: null, unitLen: 0, qtyRaw: '' };
-  }
-
-  // ── Main transform ────────────────────────────────────────────────────────
-  function transformIngredient(line, scaleMult, mode) {
-    // Guard: NUMBER-word descriptors like "10-inch" are sizes, not quantities.
-    // The number is part of the descriptor — do not scale.
-    if (/^\d+-[a-zA-Z]/.test(line)) return line;
-
-    const { qty, unit, unitLen, qtyRaw } = parseIngredient(line);
-    if (qty === null) return line;
-
-    const scaledQty = qty * scaleMult;
-    const afterQty  = line.slice(qtyRaw.length);
-    const rest = unit
-      ? afterQty.replace(/^\s+/, '').slice(unitLen)
-      : afterQty;
-
+    // No unit → count noun, scale the number only ("3 eggs")
     if (!unit) {
-      // Pluralize the first count noun in the remainder (e.g. "onion", "can", "pinch")
-      const pluralized = rest ? pluralizeFirst(rest, scaledQty) : '';
-      return `${fmtNum(scaledQty)}${pluralized ? (pluralized.startsWith(' ') ? pluralized : ' ' + pluralized) : ''}`;
-    }
-    
-    if (mode === 'original') {
-      return `${fmtNum(scaledQty)} ${displayUnit(scaledQty, unit)}${rest}`;
+      return `${fmtNum(scaledQty)} ${name}${suffix}`;
     }
 
+    // "pinch" / "piece" → scale the number, keep unit, no conversion
+    if (unit === 'pinch' || unit === 'piece') {
+      return `${fmtNum(scaledQty)} ${displayUnit(scaledQty, unit)} ${name}${suffix}`;
+    }
+
+    // Original mode, or unknown unit → scale only
+    if (mode === 'original' || (!(unit in VOL_ML) && !(unit in WGHT_G))) {
+      return `${fmtNum(scaledQty)} ${displayUnit(scaledQty, unit)} ${name}${suffix}`;
+    }
+
+    // Convert volume or weight to best unit for chosen mode
     let newQty, newUnit;
     if (unit in VOL_ML) {
       const ml = scaledQty * VOL_ML[unit];
       [newQty, newUnit] = mode === 'metric' ? bestMetricVol(ml) : bestImpVol(ml);
-    } else if (unit in WGHT_G) {
+    } else {
       const g = scaledQty * WGHT_G[unit];
       [newQty, newUnit] = mode === 'metric' ? bestMetricWght(g) : bestImpWght(g);
-    } else {
-      newQty = scaledQty; newUnit = unit;
     }
 
-    return `${fmtNum(newQty)} ${displayUnit(newQty, newUnit)}${rest}`;
+    return `${fmtNum(newQty)} ${displayUnit(newQty, newUnit)} ${name}${suffix}`;
   }
 
-  // ── Scaler ────────────────────────────────────────────────────────────────
+  function renderIngredients(scale, mode) {
+    document.querySelectorAll('.ing-text').forEach(el => {
+      const i = parseInt(el.dataset.idx, 10);
+      el.textContent = renderIngredient(INGREDIENTS[i], scale, mode);
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  SCALE CONTROLS
+  // ════════════════════════════════════════════════════════════════════════
+
   const STEPS = [0.125, 0.1667, 0.25, 0.333, 0.5, 1, 1.5, 2, 3, 4, 5, 6];
   const STEP_LABELS = {
     0.125: '⅛×', 0.1667: '⅙×', 0.25: '¼×', 0.333: '⅓×', 0.5: '½×',
@@ -600,7 +453,6 @@
   }
 
   function applyScale(m) {
-    // Find nearest step for label; fall back to decimal display
     let lbl = m + '×';
     for (const [s, sym] of Object.entries(STEP_LABELS)) {
       if (Math.abs(m - parseFloat(s)) < 0.005) { lbl = sym; break; }
@@ -616,13 +468,7 @@
     renderIngredients(currentScale(), mode);
   }
 
-  function renderIngredients(m, mode) {
-    document.querySelectorAll('.ing-text').forEach(el => {
-      el.textContent = transformIngredient(el.dataset.orig, m, mode);
-    });
-  }
-
-  // ── On-load: normalize display immediately without waiting for user interaction
+  // Initial render
   renderIngredients(1, 'original');
 </script>
 {% endblock %}
