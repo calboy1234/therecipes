@@ -47,21 +47,14 @@ USER_AGENTS = [
 ]
 
 CATEGORIES = [
+    "Meal",
+    "Dessert",
+    "Breakfast",
     "Appetizer",
     "Beverage",
-    "Breakfast & Brunch",
-    "Dessert",
-    "Candy",
-    "Meal",
-    "Side Dish",
-    "Soup & Stew",
-    "Salad",
-    "Pasta",
-    "Seafood",
-    "Vegetarian",
-    "Condiment & Sauce",
     "Snack",
-    "Preserve",
+    "Condiment",
+    "Preserves",
     "Other",
 ]
 
