@@ -18,5 +18,4 @@ VOLUME ["/data", "/images"]
 
 EXPOSE 5000
 
-# manage.py initdb uses CREATE TABLE IF NOT EXISTS — safe to run on every start.
-CMD ["sh", "-c", "python manage.py initdb && python app.py"]
+CMD ["sh", "-c", "pip install --upgrade recipe-scrapers && python manage.py initdb && python app.py"]
