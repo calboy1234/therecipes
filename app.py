@@ -20,17 +20,23 @@ app = Flask(__name__)
 DB_PATH = os.environ.get("DB_PATH", "/data/database/therecipes.db")
 
 CATEGORIES = [
-    "Appetizer", "Baking", "Beverage", "Bread",
-    "Breakfast", "Brunch", "Cake", "Candy",
-    "Casserole", "Condiment", "Cookie", "Dessert",
-    "Dip", "Drink", "Entree", "Fish & Seafood",
-    "Freezer Meal", "Jam & Preserve", "Main Course",
-    "Pasta", "Pastry", "Pickle", "Pie",
-    "Pork", "Poultry", "Salad", "Sauce",
-    "Side Dish", "Slow Cooker", "Snack", "Soup",
-    "Vegetarian", "Other",
+    "Appetizer",
+    "Beverage",
+    "Breakfast & Brunch",
+    "Dessert",
+    "Candy",
+    "Meal",
+    "Side Dish",
+    "Soup & Stew",
+    "Salad",
+    "Pasta",
+    "Seafood",
+    "Vegetarian",
+    "Condiment & Sauce",
+    "Snack",
+    "Preserve",
+    "Other",
 ]
-
 
 # ── Database helpers ──────────────────────────────────────────────────────────
 
