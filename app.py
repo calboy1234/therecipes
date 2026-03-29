@@ -11,14 +11,19 @@ import mimetypes
 import os
 import sqlite3
 import uuid
+import time
+import random
 
 import requests as http_requests
+
 from flask import (
     Flask, render_template, request, redirect,
     url_for, send_file, abort, g, jsonify, flash
 )
 from werkzeug.utils import secure_filename
-from website_recipe_extractor import get_recipe_json
+from website_recipe_extractor import get_recipe
+from urllib.parse import urlparse
+
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
@@ -34,6 +39,12 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_IMAGE_BYTES    = 10 * 1024 * 1024  # 10 MB
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+]
 
 CATEGORIES = [
     "Appetizer",
@@ -134,40 +145,60 @@ def _ext_from_content_type(content_type: str) -> str | None:
     return None
 
 
-def save_image_from_url(url: str) -> str | None:
+def save_image_from_url(url: str, max_retries: int = 3) -> str | None:
     """
-    Download an image from a remote URL into UPLOAD_DIR.
-    Validates content type and enforces MAX_IMAGE_BYTES.
-    Returns the saved local path on success, None on any failure.
+    Download an image into UPLOAD_DIR with stealth headers and retry logic.
+    Returns the local path on success, None on failure.
     """
-    if not url.startswith(("http://", "https://")):
+    if not url or not url.startswith(("http://", "https://")):
         return None
-    try:
-        resp = http_requests.get(url, timeout=15, stream=True)
-        resp.raise_for_status()
 
-        content_type = resp.headers.get("Content-Type", "")
-        ext = _ext_from_content_type(content_type)
-        if not ext:
-            ext = os.path.splitext(url.split("?")[0])[-1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            return None
+    for attempt in range(max_retries):
+        try:
+            # 1. Prepare Stealth Headers
+            headers = {
+                "User-Agent": random.choice(USER_AGENTS),
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": f"https://{urlparse(url).netloc}/"
+            }
 
-        filename = f"{uuid.uuid4()}{ext}"
-        dest     = os.path.join(UPLOAD_DIR, filename)
+            # 2. Attempt the request
+            resp = http_requests.get(url, headers=headers, timeout=15, stream=True)
+            resp.raise_for_status()
 
-        size = 0
-        with open(dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=65536):
-                size += len(chunk)
-                if size > MAX_IMAGE_BYTES:
-                    os.remove(dest)
-                    return None
-                f.write(chunk)
+            # 3. Validate Extension
+            content_type = resp.headers.get("Content-Type", "")
+            ext = _ext_from_content_type(content_type)
+            if not ext:
+                ext = os.path.splitext(url.split("?")[0])[-1].lower()
+            
+            if ext not in ALLOWED_EXTENSIONS:
+                return None
 
-        return dest
-    except Exception:
-        return None
+            # 4. Stream the file to disk with size protection
+            filename = f"{uuid.uuid4()}{ext}"
+            dest     = os.path.join(UPLOAD_DIR, filename)
+            
+            size = 0
+            with open(dest, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    size += len(chunk)
+                    if size > MAX_IMAGE_BYTES:
+                        os.remove(dest)
+                        return None
+                    f.write(chunk)
+
+            return dest  # SUCCESS!
+
+        except Exception as e:
+            # Log the failure and wait before retrying
+            print(f"[IMAGE LOG] Attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
+            
+            if attempt < max_retries - 1:
+                # Exponential-ish backoff: wait longer each time
+                time.sleep(2 * (attempt + 2) + random.random())
+            else:
+                return None
 
 
 def save_image_from_upload(file_storage) -> str | None:
@@ -417,14 +448,21 @@ def recipe_image(recipe_id):
 def api_scrape():
     data = request.get_json(force=True) or {}
     url  = data.get("url", "").strip()
+    
     if not url:
         return jsonify({"status": "error", "message": "No URL provided"}), 400
+        
     try:
-        result = get_recipe_json(url, quiet=True)
-        return app.response_class(result, status=200, mimetype="application/json")
+        result = get_recipe(url) 
+        
+        #Use jsonify to automatically convert the dict to a proper JSON response
+        if result.get("status") == "error":
+            return jsonify(result), 400 # Or 404/500 depending on your preference
+            
+        return jsonify(result), 200
+        
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 # ── Scrape page images for the image picker ───────────────────────────────────
 

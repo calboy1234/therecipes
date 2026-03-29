@@ -1,115 +1,158 @@
 import time
-import requests
-import json
 import random
-from recipe_scrapers import scrape_me, scrape_html
-from requests.exceptions import HTTPError, ConnectionError, Timeout
+import logging
+from typing import Optional, Dict, List, Any, Callable, TypedDict, Union
+from urllib.parse import urlparse
 
+import requests
+from recipe_scrapers import scrape_html
 
-def fetch_recipe_scraper(url, max_retries=4, quiet=False):
-    """
-    Attempts to fetch the recipe and return the scraper object.
-    Includes standard and stealth methods.
-    Added a 'quiet' toggle to suppress prints during website automation.
-    """
-    def log(message):
-        if not quiet:
-            print(message)
+# --- Types ---
 
-    log(f"\n{'='*60}\nScraping: {url}\n{'='*60}")
-    
-    for cycle in range(max_retries):
-        log(f"\n--- Cycle {cycle + 1} of {max_retries} ---")
-        
-        # --- METHOD 1: Standard ---
-        try:
-            log("Attempt 1: Standard access...")
-            scraper = scrape_me(url)
-            log("[SUCCESS] Standard access worked!")
-            return scraper
-            
-        except (HTTPError, ConnectionError, Timeout) as e:
-            if isinstance(e, HTTPError) and e.response is not None and e.response.status_code == 403:
-                log("[WARNING] Blocked (403 Forbidden). Switching to Stealth Mode...")
-            else:
-                log(f"[WARNING] Method 1 failed: {e}. Trying Stealth Mode...")
-        except Exception as e:
-            log(f"[WARNING] Unexpected error: {e}. Trying Stealth Mode...")
+class RecipeData(TypedDict):
+    title: str
+    author: str
+    yields: str
+    description: str
+    ingredients: List[str]
+    instructions: str
+    total_time: int
+    host: str
+    image_url: str
 
-        # --- METHOD 2: Stealth ---
-        try:
-            log("Attempt 2: Fetching with custom browser headers...")
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Referer": "https://www.google.com/"
-            }
-            
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            
-            scraper = scrape_html(html=response.text, org_url=url)
-            log("[SUCCESS] Stealth Mode worked!")
-            return scraper
+class ScrapeResponse(TypedDict):
+    status: str
+    data: Optional[RecipeData]
+    message: Optional[str]
 
-        except Exception as e:
-            log(f"[ERROR] Stealth Mode failed: {e}")
+# --- Configuration & Logging ---
 
-        # Retry Logic 
-        if cycle < max_retries - 1:
-            log("[INFO] Both methods failed. Waiting before next cycle...")
-            time.sleep(3+random.random()*10)
-        else:
-            log(f"[ERROR] Max retries reached ({max_retries}). Failed to scrape URL.")
-            return None
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
+]
 
-def safe_extract(extraction_method, default=None):
-    """
-    Helper function to safely extract data.
-    If a website is missing a field (like an image or author), 
-    this prevents the script from crashing and returns a default value.
-    """
+# --- Helpers ---
+
+def is_valid_url(url: str) -> bool:
+    """Basic validation to ensure the URL is well-formed."""
     try:
-        return extraction_method()
-    except Exception:
-        return default
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
 
-
-def extract_recipe_to_dict(scraper):
-    """
-    Takes a scraper object and formats all its data into a clean Python dictionary.
-    """
-    if not scraper:
-        return {"error": "Failed to scrape recipe."}
-
-    recipe_data = {
-        "title":       safe_extract(scraper.title,       "Unknown Title"),
-        "author":      safe_extract(scraper.author,      "Unknown Author"),
-        "yields":      safe_extract(scraper.yields,      "Unknown Yield"),
-        "description": safe_extract(scraper.description, "No description available."),
-        "ingredients": safe_extract(scraper.ingredients, []),
-        "instructions":safe_extract(scraper.instructions,[]),
-        "total_time":  safe_extract(scraper.total_time,  -1),
-        "host":        safe_extract(scraper.host,        ""),
-        "image_url":   safe_extract(scraper.image,       ""),
+def get_browser_headers() -> Dict[str, str]:
+    """Generates a fresh set of headers for a request."""
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.google.com/"
     }
-    
-    return recipe_data
 
+def get_retry_delay(cycle: int) -> float:
+    """Calculates delay."""
+    wait_time = 4 + random.uniform(0, 4)
+    return wait_time 
 
-def get_recipe_json(url, quiet=True):
+class ScraperHelper:
+    """Wrapper to safely extract fields from the scraper object."""
+    def __init__(self, scraper: Any):
+        self.scraper = scraper
+
+    def safe_get(self, func_name: str, default: Any, *args, **kwargs) -> Any:
+        try:
+            # Get the attribute (method) from the scraper
+            method = getattr(self.scraper, func_name)
+            # Call it with any provided arguments
+            return method(*args, **kwargs)
+        except Exception:
+            logger.debug(f"Failed to extract {func_name}, using default.", exc_info=True)
+            return default
+
+# --- Core Logic ---
+
+def fetch_recipe_scraper(url: str, max_retries: int = 2, timeout: int = 10) -> Optional[Any]:
     """
-    The main entry point for your web automation!
-    Pass it a URL, and it returns a perfectly formatted JSON string.
+    Fetches and returns a recipe scraper object.
     """
-    scraper = fetch_recipe_scraper(url, quiet=quiet)
-    
-    if scraper is None:
-        # Return a JSON error message if scraping failed entirely
-        return json.dumps({"status": "error", "message": "Could not retrieve recipe"}, indent=4)
+    if not is_valid_url(url):
+        logger.error(f"Invalid URL provided: {url}")
+        return None
+
+    logger.info(f"Starting scrape job for: {url}")
+    session = requests.Session()
+
+    for cycle in range(max_retries):
+        logger.info(f"--- Cycle {cycle + 1} of {max_retries} ---")
         
-    recipe_dict = extract_recipe_to_dict(scraper)
+        try:
+            # Headers are generated once per retry cycle to rotate User-Agents
+            response = session.get(
+                url, 
+                headers=get_browser_headers(), 
+                timeout=timeout
+            )
+            response.raise_for_status()
+
+            scraper = scrape_html(html=response.text, org_url=url)
+            logger.info("SUCCESS: Page fetched and parsed successfully.")
+            return scraper
+
+        except requests.exceptions.RequestException:
+            logger.exception("Network-related error occurred during request")
+        except Exception:
+            logger.exception("An unexpected error occurred while parsing the HTML")
+
+        if cycle < max_retries - 1:
+            delay = get_retry_delay(cycle)
+            logger.info(f"Retrying after {delay:.2f} seconds...")
+            time.sleep(delay)
+            
+    logger.error(f"Max retries reached ({max_retries}). Failed to scrape URL.")
+    return None
+
+def extract_recipe_to_dict(scraper: Any) -> RecipeData:
+    """
+    Normalizes scraper output into a standard RecipeData schema.
+    """
+    helper = ScraperHelper(scraper)
     
-    # Convert the Python dictionary to a formatted JSON string
-    return json.dumps({"status": "success", "data": recipe_dict}, indent=4)
+    return {
+        "title":       helper.safe_get("title", "Unknown Title"),
+        "author":      helper.safe_get("author", "Unknown Author"),
+        "yields":      helper.safe_get("yields", "Unknown Yield"),
+        "description": helper.safe_get("description", "No description available."),
+        "ingredients": helper.safe_get("ingredients", []),
+        "instructions": helper.safe_get("instructions", ""),
+        "total_time":  helper.safe_get("total_time", -1),
+        "host":        helper.safe_get("host", ""),
+        "image_url":   helper.safe_get("image", ""),
+    }
+
+def get_recipe(url: str, timeout: int = 10) -> ScrapeResponse:
+    """
+    Public API for the scraper. Returns a standardized dictionary response.
+    """
+    scraper = fetch_recipe_scraper(url, timeout=timeout)
+
+    if scraper is None:
+        return {
+            "status": "error", 
+            "data": None, 
+            "message": "Could not retrieve or parse recipe"
+        }
+
+    return {
+        "status": "success",
+        "data": extract_recipe_to_dict(scraper),
+        "message": None
+    }
