@@ -16,6 +16,23 @@
   }
   #img-preview.visible { display: block; }
 
+  /* ── Current image thumbnail (edit mode) ── */
+  #current-img-wrap {
+    display: flex;
+    align-items: flex-start;
+    gap: .85rem;
+    margin-bottom: .65rem;
+  }
+  #current-img-thumb {
+    width: 120px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #current-img-wrap .field-hint { margin-top: 0; }
+
   /* ── Field hint ── */
   .field-hint {
     font-family: sans-serif;
@@ -130,7 +147,9 @@
 
 <form id="recipe-form"
       action="{{ '/recipes/new' if is_new else '/recipe/' + recipe['id']|string + '/edit' }}"
-      method="post" style="max-width:760px;">
+      method="post"
+      enctype="multipart/form-data"
+      style="max-width:760px;">
 
   <!-- ── Import from URL ── -->
   {% if is_new %}
@@ -242,24 +261,41 @@
   </div>
 
   <!-- ── Image ── -->
-  <div class="form-section">Image (optional)</div>
+  <div class="form-section">Image <span style="font-weight:normal; text-transform:none; letter-spacing:0; font-size:.8rem; color:var(--muted);">(optional)</span></div>
 
   <div class="form-group">
-    <label for="image_path">Image Path or URL</label>
-    <input type="text" id="image_path" name="image_path"
-           value="{{ recipe['image_path'] or '' if not is_new else '' }}"
-           placeholder="/images/my-recipe.jpg  or  https://example.com/photo.jpg"
-           oninput="previewImage(this.value)" />
-    <p class="field-hint">
-      Enter a local file path (served from the /images volume) or a full URL.
-      The SHA-256 hash is computed automatically for local files.
-    </p>
-    {% if not is_new and recipe['image_hash'] %}
-      <p class="field-hint" style="margin-top:.35rem;">
-        Current hash: <code style="font-size:.73rem;">{{ recipe['image_hash'][:24] }}…</code>
+
+    {% if not is_new and recipe['image_path'] %}
+    <!-- Current image thumbnail shown only in edit mode -->
+    <div id="current-img-wrap">
+      <img id="current-img-thumb"
+           src="{{ url_for('recipe_image', recipe_id=recipe['id']) }}"
+           alt="Current recipe image" />
+      <p class="field-hint">
+        Current image. Upload a new file or paste a URL below to replace it.
+        Leave both blank to keep this image.
       </p>
+    </div>
     {% endif %}
+
+    <label for="image_file">Upload a file</label>
+    <input type="file" id="image_file" name="image_file"
+           accept=".jpg,.jpeg,.png,.gif,.webp,image/*"
+           onchange="previewUpload(this)" />
+    <p class="field-hint">JPEG, PNG, GIF, or WebP — max 10 MB.</p>
+
+    <label for="image_url" style="margin-top:.75rem; display:block;">Or paste an image URL</label>
+    <input type="url" id="image_url" name="image_url"
+           placeholder="https://example.com/photo.jpg"
+           oninput="previewUrl(this.value)" />
+    <p class="field-hint">
+      The image will be downloaded and stored locally.
+      If both a file and a URL are provided, the uploaded file takes priority.
+    </p>
+
+    <!-- Live preview — shown for URL input or selected file -->
     <img id="img-preview" src="" alt="Image preview" />
+
   </div>
 
   <!-- ── Actions ── -->
@@ -277,19 +313,38 @@
 </form>
 
 <script>
-  // ── Image preview ─────────────────────────────────────────────────────────
-  function previewImage(val) {
+  // ── Image preview helpers ─────────────────────────────────────────────────
+
+  function _showPreview(src) {
     const img = document.getElementById('img-preview');
-    const v   = val.trim();
-    if (!v) { img.classList.remove('visible'); return; }
-    if (!v.startsWith('http://') && !v.startsWith('https://')) {
-      img.classList.remove('visible'); return;
-    }
-    img.src = v;
+    img.src = src;
     img.onload  = () => img.classList.add('visible');
     img.onerror = () => img.classList.remove('visible');
   }
-  previewImage(document.getElementById('image_path').value);
+
+  // Preview a selected local file before upload
+  function previewUpload(input) {
+    const img = document.getElementById('img-preview');
+    if (!input.files || !input.files[0]) {
+      img.classList.remove('visible');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => _showPreview(e.target.result);
+    reader.readAsDataURL(input.files[0]);
+  }
+
+  // Preview a typed/pasted URL (only shows if it's an http/s URL)
+  function previewUrl(val) {
+    const img = document.getElementById('img-preview');
+    const v   = val.trim();
+    // Don't try to load a non-URL — also clear if the file input has a selection
+    if (!v || !v.startsWith('http://') && !v.startsWith('https://')) {
+      img.classList.remove('visible');
+      return;
+    }
+    _showPreview(v);
+  }
 
   // ── Qty parser — accepts "1/2", "1 1/2", decimals, integers ──────────────
   function parseQtyStr(s) {
@@ -619,6 +674,12 @@
           const parsed = parseIngredientString(ing);
           addIngredientRow(parsed.qty, parsed.unit, parsed.name, parsed.prep, ing);
         });
+      }
+
+      // Image — populate the URL field and show a preview
+      if (d.image) {
+        document.getElementById('image_url').value = d.image;
+        previewUrl(d.image);
       }
 
       statusEl.style.color = '#27ae60';

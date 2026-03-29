@@ -8,7 +8,8 @@ Usage:
     python manage.py status     Show table info, row counts, schema version
 
 Environment:
-    DB_PATH     Override the database path (default: /data/database/therecipes.db)
+    DB_PATH      Override the database path (default: /data/database/therecipes.db)
+    UPLOAD_DIR   Override the image upload directory (default: /data/uploads/images)
 """
 
 import argparse
@@ -17,9 +18,8 @@ import sqlite3
 import sys
 from datetime import datetime
 
-DB_PATH = os.environ.get("DB_PATH", "/data/database/therecipes.db")
-
-
+DB_PATH    = os.environ.get("DB_PATH",    "/data/database/therecipes.db")
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/data/uploads/images")
 
 
 # ── DB connection ─────────────────────────────────────────────────────────────
@@ -39,7 +39,12 @@ def cmd_initdb(args):
     """
     Create all tables if they don't exist.
     Safe to run against an existing database — nothing is dropped or overwritten.
+    Also creates the image upload directory if it doesn't already exist.
     """
+    # Ensure the upload directory exists
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    print(f"✓  Upload directory ready  : {UPLOAD_DIR}")
+
     conn = get_conn()
     cur  = conn.cursor()
 
@@ -69,8 +74,7 @@ def cmd_initdb(args):
     conn.commit()
     conn.close()
 
-    print(f"✓  Database initialised at: {DB_PATH}")
-
+    print(f"✓  Database initialised at : {DB_PATH}")
 
 
 def cmd_backup(args):
@@ -99,7 +103,7 @@ def cmd_backup(args):
 
 def cmd_status(args):
     """
-    Print a summary of the database: file size, schema version, and row counts.
+    Print a summary of the database: file size, upload dir, and row counts.
     """
     if not os.path.isfile(DB_PATH):
         print(f"✗  No database found at: {DB_PATH}")
@@ -108,8 +112,20 @@ def cmd_status(args):
     conn = get_conn()
     size = os.path.getsize(DB_PATH)
 
-    print(f"Database  : {DB_PATH}")
-    print(f"Size      : {size:,} bytes ({size / 1024:.1f} KB)")
+    print(f"Database   : {DB_PATH}")
+    print(f"Size       : {size:,} bytes ({size / 1024:.1f} KB)")
+    print(f"Upload dir : {UPLOAD_DIR}")
+
+    # Count images on disk
+    if os.path.isdir(UPLOAD_DIR):
+        img_count = sum(
+            1 for f in os.listdir(UPLOAD_DIR)
+            if os.path.isfile(os.path.join(UPLOAD_DIR, f))
+        )
+        print(f"Images     : {img_count:,} files in upload dir")
+    else:
+        print(f"Images     : upload dir not found (run 'initdb' to create it)")
+
     print()
 
     try:
@@ -134,8 +150,10 @@ def cmd_status(args):
         print(f"{name:<25} {count:>8,}")
 
     # Recipe summary
+    print()
     try:
         total      = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+        with_image = conn.execute("SELECT COUNT(*) FROM recipes WHERE image_path IS NOT NULL").fetchone()[0]
         cats       = conn.execute(
             "SELECT COUNT(DISTINCT dish_category) FROM recipes "
             "WHERE dish_category IS NOT NULL AND dish_category != ''"
@@ -146,6 +164,7 @@ def cmd_status(args):
         ).fetchone()[0]
 
         print(f"Recipes total    : {total:,}")
+        print(f"With image       : {with_image:,}")
         print(f"Categories used  : {cats:,}")
         print(f"Submitters       : {submitters:,}")
     except Exception:
@@ -157,9 +176,9 @@ def cmd_status(args):
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 COMMANDS = {
-    "initdb":  cmd_initdb,
-    "backup":  cmd_backup,
-    "status":  cmd_status,
+    "initdb": cmd_initdb,
+    "backup": cmd_backup,
+    "status": cmd_status,
 }
 
 
@@ -172,11 +191,13 @@ def main():
             "Commands:",
             "  initdb    Create tables (safe on existing DB — never overwrites data)",
             "  backup    Copy DB to a timestamped backup in the same directory",
-            "  status    Show DB path, size, and row counts",
+            "  status    Show DB path, size, upload dir, and row counts",
             "",
             "Environment:",
-            "  DB_PATH   Override database path",
-            "            Default: /data/database/therecipes.db",
+            "  DB_PATH      Override database path",
+            "               Default: /data/database/therecipes.db",
+            "  UPLOAD_DIR   Override image upload directory",
+            "               Default: /data/uploads/images",
             "",
             "Examples:",
             "  python manage.py initdb",
