@@ -6,13 +6,15 @@ Database must be initialised first with: python manage.py initdb
 """
 
 import hashlib
+import json
 import mimetypes
 import os
 import sqlite3
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, send_file, abort, g
+    url_for, send_file, abort, g, jsonify
 )
+from website_recipe_extractor import get_recipe_json
 
 app = Flask(__name__)
 DB_PATH = os.environ.get("DB_PATH", "/data/database/therecipes.db")
@@ -165,8 +167,8 @@ def recipe_new():
         cur = db.execute("""
             INSERT INTO recipes
                 (title, original_author, recipe_submitter, description, serving_size,
-                 ingredients, instructions, notes, dish_category, image_path, image_hash, is_deleted)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                 ingredients, instructions, dish_category, image_path, image_hash, is_deleted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         """, (
             request.form.get("title",        "").strip() or None,
             author,
@@ -175,7 +177,6 @@ def recipe_new():
             request.form.get("serving_size", "").strip() or None,
             request.form.get("ingredients",  "").strip() or None,
             request.form.get("instructions", "").strip() or None,
-            request.form.get("notes",        "").strip() or None,
             request.form.get("dish_category","").strip() or None,
             image_path,
             image_hash,
@@ -217,7 +218,7 @@ def recipe_edit(recipe_id):
             UPDATE recipes
             SET title=?, original_author=?, recipe_submitter=?,
                 description=?, serving_size=?,
-                ingredients=?, instructions=?, notes=?,
+                ingredients=?, instructions=?,
                 dish_category=?, image_path=?, image_hash=?
             WHERE id=?
         """, (
@@ -228,7 +229,6 @@ def recipe_edit(recipe_id):
             request.form.get("serving_size", "").strip() or None,
             request.form.get("ingredients",  "").strip() or None,
             request.form.get("instructions", "").strip() or None,
-            request.form.get("notes",        "").strip() or None,
             request.form.get("dish_category","").strip() or None,
             image_path,
             image_hash,
@@ -271,6 +271,21 @@ def recipe_image(recipe_id):
         abort(404)
     mime, _ = mimetypes.guess_type(path)
     return send_file(path, mimetype=mime or "image/jpeg")
+
+
+# ── Scrape recipe from URL ────────────────────────────────────────────────────
+
+@app.route("/api/scrape", methods=["POST"])
+def api_scrape():
+    data = request.get_json(force=True) or {}
+    url  = data.get("url", "").strip()
+    if not url:
+        return jsonify({"status": "error", "message": "No URL provided"}), 400
+    try:
+        result = get_recipe_json(url, quiet=True)
+        return app.response_class(result, status=200, mimetype="application/json")
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ── Search redirect ───────────────────────────────────────────────────────────
