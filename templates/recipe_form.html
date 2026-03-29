@@ -325,8 +325,20 @@
            onchange="previewUpload(this)" />
     <p class="field-hint">JPEG, PNG, GIF, or WebP — max 10 MB.</p>
 
+    <!-- URL input — always visible in both new and edit modes -->
+    <label for="image_url_input" style="margin-top:.85rem; display:block;">Or paste an image URL</label>
+    <div style="display:flex; gap:.5rem; align-items:flex-start; flex-wrap:wrap;">
+      <input type="text" id="image_url_input"
+             placeholder="https://example.com/photo.jpg"
+             style="flex:1; min-width:200px;" />
+      <button type="button" class="btn btn-outline" id="add-url-btn" onclick="addImageUrl()">
+        + Add
+      </button>
+    </div>
+    <p id="url-img-status" class="field-hint" style="min-height:1.1em;"></p>
+
     {% if is_new %}
-    <!-- Image picker grid — hidden until a file is uploaded or a URL is scraped -->
+    <!-- Image picker grid — hidden until a file is uploaded, a URL is scraped, or a URL is pasted -->
     <div id="image-picker-section" style="display:none; margin-top:.85rem;">
       <label style="display:block; margin-bottom:.2rem;">Select an image</label>
       <p id="picker-status" class="field-hint"></p>
@@ -334,11 +346,16 @@
       <!-- Preview of whichever tile is selected -->
       <img id="img-preview" src="" alt="Selected image preview" />
     </div>
+    {% else %}
+    <!-- Edit mode: preview of pasted URL before saving -->
+    <img id="img-preview" src="" alt="Image preview"
+         style="display:none; width:100%; max-height:200px; object-fit:cover;
+                border-radius:var(--radius); border:1px solid var(--border); margin-top:.5rem;" />
+    {% endif %}
 
     <!-- Hidden field carries the selected image URL to the server on submit.
-         Empty means the server uses the uploaded file (if any). -->
+         Used in both new and edit modes. Empty = use the uploaded file (if any). -->
     <input type="hidden" id="image_url" name="image_url" value="" />
-    {% endif %}
 
   </div>
 
@@ -520,6 +537,76 @@
       _hidePreview();
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Paste-a-URL handler — works in both new and edit modes
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async function addImageUrl() {
+    const input    = document.getElementById('image_url_input');
+    const statusEl = document.getElementById('url-img-status');
+    const btn      = document.getElementById('add-url-btn');
+    const url      = (input ? input.value : '').trim();
+
+    if (!url) {
+      statusEl.style.color = '#c0392b';
+      statusEl.textContent = 'Please paste an image URL first.';
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      statusEl.style.color = '#c0392b';
+      statusEl.textContent = 'URL must start with http:// or https://';
+      return;
+    }
+
+    btn.disabled         = true;
+    btn.textContent      = 'Checking…';
+    statusEl.style.color = 'var(--muted)';
+    statusEl.textContent = 'Checking image…';
+
+    const dim = await _testImage(url);
+
+    btn.disabled    = false;
+    btn.textContent = '+ Add';
+
+    if (!dim) {
+      statusEl.style.color = '#c0392b';
+      statusEl.textContent = 'Could not load an image from that URL. Make sure it links directly to an image file and is at least 200×200 px.';
+      return;
+    }
+
+    statusEl.style.color = '#27ae60';
+    statusEl.textContent = '✓ Image added (' + dim.w + '×' + dim.h + ' px).';
+    input.value = '';
+
+    const pickerSection = document.getElementById('image-picker-section');
+
+    if (pickerSection) {
+      // New-recipe mode: add as a tile to the grid and select it
+      pickerSection.style.display = 'block';
+      const grid = document.getElementById('picker-grid');
+      if (!grid.querySelector('[data-url="' + CSS.escape(url) + '"]')) {
+        const tile = _createUrlTile(url);
+        grid.appendChild(tile);
+        _updatePickerStatus();
+      }
+      _selectTile(url);
+    } else {
+      // Edit mode: set the hidden field and show an inline preview
+      document.getElementById('image_url').value = url;
+      const preview = document.getElementById('img-preview');
+      if (preview) {
+        preview.src           = url;
+        preview.style.display = 'block';
+      }
+      const fi = document.getElementById('image_file');
+      if (fi) fi.value = '';
+    }
+  }
+
+  document.getElementById('image_url_input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); addImageUrl(); }
+  });
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Status line helper

@@ -38,7 +38,7 @@ UPLOAD_DIR = os.path.realpath(
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-MAX_IMAGE_BYTES    = 10 * 1024 * 1024  # 10 MB
+MAX_IMAGE_BYTES    = 15 * 1024 * 1024  # 15 MB
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -49,6 +49,7 @@ USER_AGENTS = [
 CATEGORIES = [
     "Meal",
     "Dessert",
+    "Side",
     "Breakfast",
     "Appetizer",
     "Beverage",
