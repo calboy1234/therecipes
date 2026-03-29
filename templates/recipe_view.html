@@ -182,11 +182,6 @@
     <h2 class="section-heading">Instructions</h2>
     <div class="instructions-text card">{{ recipe['instructions'] or 'No instructions provided.' }}</div>
 
-    {% if recipe['notes'] %}
-      <h3 style="margin-top:1.75rem; margin-bottom:.5rem;">📝 Notes</h3>
-      <div class="card muted" style="font-style:italic; white-space:pre-wrap;">{{ recipe['notes'] }}</div>
-    {% endif %}
-
     {% if recipe['image_hash'] %}
       <p class="muted" style="margin-top:1.5rem; font-size:.73rem;">
         Image SHA-256: <code style="font-size:.7rem;">{{ recipe['image_hash'][:16] }}…</code>

@@ -57,7 +57,6 @@ def cmd_initdb(args):
         serving_size      TEXT,
         ingredients       TEXT,
         instructions      TEXT,
-        notes             TEXT,
         dish_category     TEXT,
         image_path        TEXT,
         image_hash        TEXT,

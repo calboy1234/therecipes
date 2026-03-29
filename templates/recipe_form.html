@@ -110,6 +110,21 @@
       action="{{ '/recipes/new' if is_new else '/recipe/' + recipe['id']|string + '/edit' }}"
       method="post" style="max-width:760px;">
 
+  <!-- ── Import from URL ── -->
+  {% if is_new %}
+  <div class="form-section">Import from URL <span style="font-weight:normal; text-transform:none; letter-spacing:0; font-size:.8rem; color:var(--muted);">(optional — fills fields automatically)</span></div>
+
+  <div style="display:flex; gap:.5rem; align-items:flex-start; margin-bottom:1.25rem; flex-wrap:wrap;">
+    <input type="text" id="scrape-url"
+           placeholder="https://www.allrecipes.com/recipe/…"
+           style="flex:1; min-width:200px;" />
+    <button type="button" class="btn btn-outline" id="scrape-btn" onclick="scrapeRecipe()">
+      ↓ Fill from URL
+    </button>
+  </div>
+  <div id="scrape-status" style="font-size:.83rem; margin-bottom:1rem; min-height:1.2em;"></div>
+  {% endif %}
+
   <!-- ── About the recipe ── -->
   <div class="form-section">About the Recipe</div>
 
@@ -202,12 +217,6 @@
     <label for="instructions">Instructions</label>
     <textarea id="instructions" name="instructions" rows="12"
               placeholder="Step-by-step instructions…&#10;&#10;You can use numbered steps or plain paragraphs.">{{ recipe['instructions'] or '' if not is_new else '' }}</textarea>
-  </div>
-
-  <div class="form-group">
-    <label for="notes">Notes</label>
-    <textarea id="notes" name="notes" rows="4"
-              placeholder="Serving suggestions, variations, storage tips, where you found this recipe…">{{ recipe['notes'] or '' if not is_new else '' }}</textarea>
   </div>
 
   <!-- ── Image ── -->
@@ -412,5 +421,77 @@
       alert(errors.join('\n'));
     }
   });
+
+  // ── Import from URL ───────────────────────────────────────────────────────
+  async function scrapeRecipe() {
+    const urlInput  = document.getElementById('scrape-url');
+    const statusEl  = document.getElementById('scrape-status');
+    const btn       = document.getElementById('scrape-btn');
+    const url       = urlInput.value.trim();
+
+    if (!url) {
+      statusEl.style.color = '#c0392b';
+      statusEl.textContent = 'Please paste a recipe URL first.';
+      return;
+    }
+
+    btn.disabled        = true;
+    btn.textContent     = '⏳ Fetching…';
+    statusEl.style.color = 'var(--muted)';
+    statusEl.textContent = 'Contacting website — this may take a few seconds…';
+
+    try {
+      const res  = await fetch('/api/scrape', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ url }),
+      });
+      const json = await res.json();
+
+      if (json.status !== 'success') {
+        statusEl.style.color = '#c0392b';
+        statusEl.textContent = '✗ Could not import: ' + (json.message || 'unknown error');
+        return;
+      }
+
+      const d = json.data;
+
+      // Fill text fields
+      if (d.title)       document.getElementById('title').value        = d.title;
+      if (d.author && d.author !== 'Unknown Author')
+                         document.getElementById('original_author').value = d.author;
+      if (d.yields && d.yields !== 'Unknown Yield')
+                         document.getElementById('serving_size').value = d.yields;
+      if (d.description && d.description !== 'No description available.')
+                         document.getElementById('description').value  = d.description;
+
+      // Instructions — join array or use string
+      if (d.instructions) {
+        const inst = Array.isArray(d.instructions)
+          ? d.instructions.join('\n\n')
+          : String(d.instructions);
+        if (inst.trim()) document.getElementById('instructions').value = inst;
+      }
+
+      // Ingredients — clear existing rows and populate
+      if (d.ingredients && d.ingredients.length) {
+        document.getElementById('ing-rows').innerHTML = '';
+        d.ingredients.forEach(ing => {
+          // Each ingredient string goes into the name field; user can tidy up
+          addIngredientRow('', '', ing, '');
+        });
+      }
+
+      statusEl.style.color = '#27ae60';
+      statusEl.textContent  = '✓ Recipe imported! Review the fields below and make any adjustments.';
+
+    } catch (err) {
+      statusEl.style.color = '#c0392b';
+      statusEl.textContent = '✗ Network error: ' + err.message;
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = '↓ Fill from URL';
+    }
+  }
 </script>
 {% endblock %}
