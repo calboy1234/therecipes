@@ -58,7 +58,7 @@ def fetch_recipe_scraper(url, max_retries=4, quiet=False):
         # Retry Logic 
         if cycle < max_retries - 1:
             log("[INFO] Both methods failed. Waiting before next cycle...")
-            time.sleep(10+random.random()*10)
+            time.sleep(3+random.random()*10)
         else:
             log(f"[ERROR] Max retries reached ({max_retries}). Failed to scrape URL.")
             return None

@@ -595,8 +595,7 @@
       const isExtractor = (url === _pickerExtractor);
       const nonExtCount = _pickerValid.filter(i => i.url !== _pickerExtractor).length;
 
-      // Enforce slot budget: 1 extractor + 14 others = 15 URL tiles max
-      if (!isExtractor && nonExtCount >= 14) return;
+      if (!isExtractor && nonExtCount >= 13) return;
       if (_pickerValid.find(i => i.url === url))  return; // URL dedup
 
       _pickerValid.push({url, w: dim.w, h: dim.h});
