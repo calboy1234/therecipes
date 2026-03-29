@@ -84,14 +84,15 @@ def extract_recipe_to_dict(scraper):
         return {"error": "Failed to scrape recipe."}
 
     recipe_data = {
-        "title": safe_extract(scraper.title, "Unknown Title"),
-        "author": safe_extract(scraper.author, "Unknown Author"),
-        "yields": safe_extract(scraper.yields, "Unknown Yield"),
+        "title":       safe_extract(scraper.title,       "Unknown Title"),
+        "author":      safe_extract(scraper.author,      "Unknown Author"),
+        "yields":      safe_extract(scraper.yields,      "Unknown Yield"),
         "description": safe_extract(scraper.description, "No description available."),
         "ingredients": safe_extract(scraper.ingredients, []),
-        "instructions": safe_extract(scraper.instructions, []),
-        "total_time": safe_extract(scraper.total_time, -1),
-        "host": safe_extract(scraper.host, "")
+        "instructions":safe_extract(scraper.instructions,[]),
+        "total_time":  safe_extract(scraper.total_time,  -1),
+        "host":        safe_extract(scraper.host,        ""),
+        "image_url":   safe_extract(scraper.image,       ""),
     }
     
     return recipe_data
