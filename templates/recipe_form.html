@@ -498,6 +498,14 @@
   function _selectTile(urlOrSentinel) {
     _pickerSelected = urlOrSentinel;
 
+    // Keep the hidden field in sync so every selection — including auto-selection
+    // after a scrape — is actually submitted to the server.
+    const imageUrlField = document.getElementById('image_url');
+    if (imageUrlField) {
+      imageUrlField.value = (urlOrSentinel === UPLOAD_SENTINEL || !urlOrSentinel)
+        ? '' : urlOrSentinel;
+    }
+
     // Update tile borders
     document.querySelectorAll('.picker-tile').forEach(t =>
       t.classList.toggle('selected', t.dataset.url === urlOrSentinel)
@@ -790,7 +798,7 @@
     const raw    = {{ recipe['ingredients'] | tojson }};
     const parsed = JSON.parse(raw);
     parsed.forEach(ing => {
-      const qtyDisplay = ing.qty !== null && ing.qty !== undefined ? String(ing.qty) : '';
+      const qtyDisplay = ing.qty !== null && ing.qty !== undefined ? snapDecimal(ing.qty) : '';
       addIngredientRow(qtyDisplay, ing.unit || '', ing.name || '', ing.prep || '');
     });
     {% endif %}
@@ -976,9 +984,17 @@
         document.getElementById('description').value = d.description;
 
       if (d.instructions) {
-        const inst = Array.isArray(d.instructions)
-          ? d.instructions.join('\n\n')
-          : String(d.instructions);
+        let inst;
+        if (Array.isArray(d.instructions)) {
+          // Number each step and separate with a blank line so the view can split them
+          inst = d.instructions
+            .map(s => s.trim())
+            .filter(Boolean)
+            .map((s, i) => `${i + 1}. ${s}`)
+            .join('\n\n');
+        } else {
+          inst = String(d.instructions);
+        }
         if (inst.trim()) document.getElementById('instructions').value = inst;
       }
 

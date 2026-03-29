@@ -91,6 +91,43 @@
     white-space: pre-wrap; font-size: 1.02rem; line-height: 1.85;
   }
 
+  /* ── Numbered instruction steps ── */
+  .instructions-steps {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    counter-reset: step-counter;
+  }
+  .instructions-steps li {
+    counter-increment: step-counter;
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: 1rem 1.1rem;
+    margin-bottom: .5rem;
+    border-radius: var(--radius);
+    background: var(--surface);
+    font-size: 1.02rem;
+    line-height: 1.7;
+    border-left: 3px solid var(--accent2);
+  }
+  .instructions-steps li::before {
+    content: counter(step-counter);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.75rem;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    font-weight: bold;
+    font-size: .82rem;
+    font-family: sans-serif;
+    flex-shrink: 0;
+    margin-top: .1rem;
+  }
+
   /* ── Recipe image ── */
   .recipe-img {
     width: 100%; max-height: 380px; object-fit: cover;
@@ -180,13 +217,46 @@
   <!-- Instructions -->
   <div>
     <h2 class="section-heading">Instructions</h2>
-    <div class="instructions-text card">{{ recipe['instructions'] or 'No instructions provided.' }}</div>
+    <div id="instructions-container"></div>
+    <script>
+      (function renderInstructions() {
+        const raw = {{ recipe['instructions'] | tojson if recipe['instructions'] else 'null' }};
+        const container = document.getElementById('instructions-container');
+        if (!raw || !raw.trim()) {
+          container.innerHTML = '<p class="muted">No instructions provided.</p>';
+          return;
+        }
 
-    {% if recipe['image_hash'] %}
-      <p class="muted" style="margin-top:1.5rem; font-size:.73rem;">
-        Image SHA-256: <code style="font-size:.7rem;">{{ recipe['image_hash'][:16] }}…</code>
-      </p>
-    {% endif %}
+        // Split into steps: prefer double-newline breaks, fall back to single newlines
+        let steps = raw.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+        if (steps.length <= 1) {
+          steps = raw.split(/\n/).map(s => s.trim()).filter(Boolean);
+        }
+
+        // Strip any leading step numbers the user may have typed (e.g. "1." or "1)")
+        steps = steps.map(s => s.replace(/^\d+[\.\)]\s+/, ''));
+
+        if (steps.length <= 1) {
+          // Single block of text — render with pre-wrap in a card
+          const div = document.createElement('div');
+          div.className = 'instructions-text card';
+          div.textContent = raw;
+          container.appendChild(div);
+          return;
+        }
+
+        const ol = document.createElement('ol');
+        ol.className = 'instructions-steps';
+        steps.forEach(step => {
+          const li = document.createElement('li');
+          li.textContent = step;
+          ol.appendChild(li);
+        });
+        container.appendChild(ol);
+      })();
+    </script>
+
+
   </div>
 
 </div>
