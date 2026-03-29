@@ -3,19 +3,6 @@
 
 {% block content %}
 
-{% macro stars(rating) %}
-  {% if rating >= 0 %}
-    {% set filled = (rating / 2)|round(0,'floor')|int %}
-    {% set color  = '#27ae60' if rating >= 7 else ('#f39c12' if rating >= 4 else '#c0392b') %}
-    <span style="color:{{ color }}; font-size:.88rem; letter-spacing:.03em;">
-      {%- for i in range(filled) %}★{% endfor -%}
-      {%- for i in range(5 - filled) %}☆{% endfor -%}
-    </span>
-    <span class="muted" style="font-size:.76rem;">{{ rating }}/10</span>
-  {% else %}
-    <span class="muted" style="font-size:.75rem; font-style:italic;">Unrated</span>
-  {% endif %}
-{% endmacro %}
 
 <div class="gap" style="margin-bottom:1.25rem;">
   <h1 style="margin:0;">Recipes</h1>
@@ -44,7 +31,6 @@
     <select name="sort"
             style="padding:.48rem .7rem; border:1px solid var(--border); border-radius:var(--radius); font-size:.9rem; background:var(--bg);">
       <option value="newest" {{ 'selected' if sort == 'newest' }}>Newest first</option>
-      <option value="rating" {{ 'selected' if sort == 'rating' }}>Highest rated</option>
       <option value="title"  {{ 'selected' if sort == 'title'  }}>Title A–Z</option>
     </select>
 
@@ -60,7 +46,6 @@
 {% else %}
 <div class="grid">
   {% for r in rows %}
-  {% set rating = r['rating']|default(-1)|int %}
   <div class="grid-card">
     {% if r['image_path'] %}
       <a href="/recipe/{{ r['id'] }}">
@@ -75,10 +60,6 @@
     {% endif %}
     <div class="info">
       <a class="title" href="/recipe/{{ r['id'] }}">{{ r['title'] or '(untitled)' }}</a>
-
-      <div style="margin-bottom:.3rem;">
-        {{ stars(rating) }}
-      </div>
 
       <div style="display:flex; gap:.35rem; flex-wrap:wrap; margin-bottom:.3rem;">
         {% if r['dish_category'] %}
