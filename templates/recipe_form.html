@@ -133,6 +133,44 @@
     .ing-row .ing-name { grid-column: 2; }
     .ing-row .ing-prep { grid-column: 1 / -2; }
   }
+
+  /* ── Image picker ── */
+  #image-picker-section {
+    margin-bottom: 1.1rem;
+  }
+  #picker-status {
+    margin-top: 0;
+    margin-bottom: .45rem;
+    min-height: 1.2em;
+  }
+  #picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: .4rem;
+  }
+  .picker-tile {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    border: 2.5px solid transparent;
+    transition: border-color .15s, filter .15s;
+    background: var(--surface);
+  }
+  .picker-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+  }
+  .picker-tile:hover { filter: brightness(.88); }
+  .picker-tile.selected {
+    border-color: var(--accent, #2980b9);
+    box-shadow: 0 0 0 1px var(--accent, #2980b9);
+  }
 </style>
 
 <!-- ── Page header ── -->
@@ -266,7 +304,7 @@
   <div class="form-group">
 
     {% if not is_new and recipe['image_path'] %}
-    <!-- Current image thumbnail shown only in edit mode -->
+    <!-- Current image thumbnail — edit mode only -->
     <div id="current-img-wrap">
       <img id="current-img-thumb"
            src="{{ url_for('recipe_image', recipe_id=recipe['id']) }}"
@@ -278,7 +316,16 @@
     </div>
     {% endif %}
 
-    <label for="image_file">Upload a file</label>
+    {% if is_new %}
+    <!-- Image picker — hidden until scrapeRecipe() populates it -->
+    <div id="image-picker-section" style="display:none;">
+      <label style="display:block; margin-bottom:.2rem;">Images from the page</label>
+      <p id="picker-status" class="field-hint"></p>
+      <div id="picker-grid"></div>
+    </div>
+    {% endif %}
+
+    <label for="image_file" {% if is_new %}style="margin-top:.85rem; display:block;"{% endif %}>Upload a file</label>
     <input type="file" id="image_file" name="image_file"
            accept=".jpg,.jpeg,.png,.gif,.webp,image/*"
            onchange="previewUpload(this)" />
@@ -287,7 +334,7 @@
     <label for="image_url" style="margin-top:.75rem; display:block;">Or paste an image URL</label>
     <input type="url" id="image_url" name="image_url"
            placeholder="https://example.com/photo.jpg"
-           oninput="previewUrl(this.value)" />
+           oninput="onImageUrlInput(this.value)" />
     <p class="field-hint">
       The image will be downloaded and stored locally.
       If both a file and a URL are provided, the uploaded file takes priority.
@@ -313,22 +360,33 @@
 </form>
 
 <script>
+  // ── Picker state (module-level so all functions share it) ─────────────────
+  let _pickerExtractor = null;  // extractor image URL set by the last scrape
+  let _pickerValid     = [];    // [{url, w, h}] images that passed dimension check
+  let _pickerSelected  = null;  // URL of whichever tile is currently highlighted
+  let _pickerClosed    = false; // true once we've stopped accepting new results
+
   // ── Image preview helpers ─────────────────────────────────────────────────
 
   function _showPreview(src) {
     const img = document.getElementById('img-preview');
-    img.src = src;
+    img.src     = src;
     img.onload  = () => img.classList.add('visible');
     img.onerror = () => img.classList.remove('visible');
   }
 
   // Preview a selected local file before upload
   function previewUpload(input) {
-    const img = document.getElementById('img-preview');
     if (!input.files || !input.files[0]) {
-      img.classList.remove('visible');
+      document.getElementById('img-preview').classList.remove('visible');
       return;
     }
+    // File takes priority — deselect picker tiles and clear image_url
+    // so the UI stays unambiguous (file wins in _resolve_image anyway)
+    document.querySelectorAll('.picker-tile').forEach(t => t.classList.remove('selected'));
+    _pickerSelected = null;
+    document.getElementById('image_url').value = '';
+
     const reader = new FileReader();
     reader.onload = e => _showPreview(e.target.result);
     reader.readAsDataURL(input.files[0]);
@@ -338,25 +396,33 @@
   function previewUrl(val) {
     const img = document.getElementById('img-preview');
     const v   = val.trim();
-    // Don't try to load a non-URL — also clear if the file input has a selection
-    if (!v || !v.startsWith('http://') && !v.startsWith('https://')) {
+    if (!v || (!v.startsWith('http://') && !v.startsWith('https://'))) {
       img.classList.remove('visible');
       return;
     }
     _showPreview(v);
   }
 
+  // Called by the image_url input's oninput — preview and sync picker state
+  function onImageUrlInput(val) {
+    previewUrl(val);
+    const v = val.trim();
+    // If the user typed something different from the auto-selected picker URL,
+    // clear the tile highlight so there's no stale selection shown
+    if (v !== _pickerSelected) {
+      document.querySelectorAll('.picker-tile').forEach(t => t.classList.remove('selected'));
+      _pickerSelected = v || null;
+    }
+  }
+
   // ── Qty parser — accepts "1/2", "1 1/2", decimals, integers ──────────────
   function parseQtyStr(s) {
     s = s.trim();
     if (!s) return null;
-    // Mixed number: "1 1/2"
     const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/);
     if (mixed) return parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3]);
-    // Simple fraction: "3/4"
     const frac = s.match(/^(\d+)\/(\d+)$/);
     if (frac) return parseInt(frac[1]) / parseInt(frac[2]);
-    // Decimal / integer
     const n = parseFloat(s);
     return isFinite(n) ? n : null;
   }
@@ -413,12 +479,11 @@
     const wrapper = document.createElement('div');
     wrapper.className = 'ing-row-wrapper';
 
-    // Raw preview — only shown when a scraped string is provided
     if (rawString) {
       const preview = document.createElement('div');
-      preview.className = 'ing-raw-preview';
+      preview.className   = 'ing-raw-preview';
       preview.textContent = rawString;
-      preview.title = rawString;
+      preview.title       = rawString;
       wrapper.appendChild(preview);
     }
 
@@ -456,14 +521,13 @@
   // ── Pre-populate rows from existing data ──────────────────────────────────
   (function loadIngredients() {
     {% if not is_new and recipe['ingredients'] %}
-    const raw = {{ recipe['ingredients'] | tojson }};
+    const raw    = {{ recipe['ingredients'] | tojson }};
     const parsed = JSON.parse(raw);
     parsed.forEach(ing => {
       const qtyDisplay = ing.qty !== null && ing.qty !== undefined ? String(ing.qty) : '';
       addIngredientRow(qtyDisplay, ing.unit || '', ing.name || '', ing.prep || '');
     });
     {% endif %}
-    // Always start with at least one empty row
     if (document.getElementById('ing-rows').children.length === 0) {
       addIngredientRow();
     }
@@ -473,20 +537,16 @@
   function serializeIngredients() {
     const rows = [...document.querySelectorAll('#ing-rows .ing-row')];
     return rows
-      .map(row => {
-        const qtyVal = row.querySelector('.ing-qty').value.trim();
-        return {
-          qty:  parseQtyStr(qtyVal),
-          unit: row.querySelector('.ing-unit').value,
-          name: row.querySelector('.ing-name').value.trim(),
-          prep: row.querySelector('.ing-prep').value.trim(),
-        };
-      })
-      .filter(ing => ing.name); // skip rows with no ingredient name
+      .map(row => ({
+        qty:  parseQtyStr(row.querySelector('.ing-qty').value.trim()),
+        unit: row.querySelector('.ing-unit').value,
+        name: row.querySelector('.ing-name').value.trim(),
+        prep: row.querySelector('.ing-prep').value.trim(),
+      }))
+      .filter(ing => ing.name);
   }
 
   // ── Form validation + serialization ──────────────────────────────────────
-  // Uses #recipe-form (not querySelector('form')) to avoid matching the nav search form.
   document.getElementById('recipe-form').addEventListener('submit', function (e) {
     const errors = [];
 
@@ -499,7 +559,6 @@
     if (ingredients.length === 0) {
       errors.push('At least one ingredient with a name is required.');
     } else {
-      // Set the hidden field regardless of other errors so it survives re-submission
       document.getElementById('ingredients').value = JSON.stringify(ingredients);
     }
 
@@ -513,10 +572,6 @@
   });
 
   // ── Ingredient string parser ──────────────────────────────────────────────
-  // Handles scraped strings like "0.33333334326744 cup vegetable oil, divided"
-  // and splits them into { qty, unit, name, prep }.
-
-  // Map verbose/plural unit words → the select values used in the form
   const UNIT_MAP = {
     teaspoon: 'tsp', teaspoons: 'tsp', tsp: 'tsp',
     tablespoon: 'tbsp', tablespoons: 'tbsp', tbsp: 'tbsp',
@@ -537,7 +592,6 @@
     'as needed': 'as needed',
   };
 
-  // Snap ugly repeating decimals to clean fraction strings for the qty input
   const DECIMAL_SNAPS = [
     [1/8, '1/8'], [1/6, '1/6'], [1/4, '1/4'], [1/3, '1/3'], [3/8, '3/8'],
     [1/2, '1/2'], [5/8, '5/8'], [2/3, '2/3'], [3/4, '3/4'], [7/8, '7/8'],
@@ -545,42 +599,34 @@
   ];
 
   function snapDecimal(n) {
-    // Try to express n as a clean mixed-number string, e.g. 1.333 → "1 1/3"
     const whole = Math.floor(n);
     const frac  = n - whole;
     if (frac < 0.02) return whole === 0 ? '' : String(whole);
     if (frac > 0.98) return String(whole + 1);
     for (const [val, sym] of DECIMAL_SNAPS) {
-      if (Math.abs(frac - val) < 0.02) {
-        return whole === 0 ? sym : `${whole} ${sym}`;
-      }
+      if (Math.abs(frac - val) < 0.02) return whole === 0 ? sym : `${whole} ${sym}`;
     }
-    // Fallback: round to 2 decimal places
     return String(Number(n.toFixed(2)));
   }
 
   function parseIngredientString(raw) {
     let s = raw.trim();
 
-    // 1. Unicode Fix: Add a space so "1½" becomes "1 1/2"
     const UNICODE_FRACS = { '½':'1/2','⅓':'1/3','⅔':'2/3','¼':'1/4','¾':'3/4','⅛':'1/8','⅜':'3/8','⅝':'5/8','⅞':'7/8','⅙':'1/6','⅚':'5/6' };
     s = s.replace(/[½⅓⅔¼¾⅛⅜⅝⅞⅙⅚]/g, m => ` ${UNICODE_FRACS[m]} `).replace(/\s+/g, ' ').trim();
 
-    // 2. Quantity Extraction
-    const QTY_RE = /^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.?\d+)\s*/;
-    let qtyStr = '';
+    const QTY_RE  = /^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.?\d+)\s*/;
+    let   qtyStr  = '';
     const qtyMatch = s.match(QTY_RE);
-    
     if (qtyMatch) {
       let n = 0;
       const raw_n = qtyMatch[1].trim();
-      
       if (raw_n.includes('/')) {
         const parts = raw_n.split(/\s+/);
-        if (parts.length === 2) { // Mixed number "1 1/2"
+        if (parts.length === 2) {
           const [num, den] = parts[1].split('/');
-          n = parseFloat(parts[0]) + (parseFloat(num) / parseFloat(den));
-        } else { // Simple fraction "1/2"
+          n = parseFloat(parts[0]) + parseFloat(num) / parseFloat(den);
+        } else {
           const [num, den] = parts[0].split('/');
           n = parseFloat(num) / parseFloat(den);
         }
@@ -591,37 +637,177 @@
       s = s.slice(qtyMatch[0].length);
     }
 
-    // 3. Unit Extraction (Case-insensitive check)
     let unitVal = '';
-    // Sort keys by length descending to match "fluid ounces" before "ounces"
     const sortedUnits = Object.keys(UNIT_MAP).sort((a, b) => b.length - a.length);
-    
     for (const unitCandidate of sortedUnits) {
-      // Match unit at start of string followed by non-word char or end of string
       const unitRegex = new RegExp(`^${unitCandidate.replace(/\./g, '\\.')}(\\s+|\\b)`, 'i');
       if (unitRegex.test(s)) {
         unitVal = UNIT_MAP[unitCandidate.toLowerCase()];
         s = s.replace(unitRegex, '');
-        break; 
+        break;
       }
     }
 
-    // 4. Name & Prep
     let [name, ...prepParts] = s.split(',');
-    return {
-      qty: qtyStr,
-      unit: unitVal,
-      name: name.trim(),
-      prep: prepParts.join(',').trim()
-    };
+    return { qty: qtyStr, unit: unitVal, name: name.trim(), prep: prepParts.join(',').trim() };
+  }
+
+  // ── Image picker ──────────────────────────────────────────────────────────
+
+  async function initImagePicker(extractorUrl, pageUrl) {
+    // Reset state for this scrape
+    _pickerExtractor = extractorUrl || null;
+    _pickerValid     = [];
+    _pickerSelected  = null;
+    _pickerClosed    = false;
+
+    const section = document.getElementById('image-picker-section');
+    const grid    = document.getElementById('picker-grid');
+    const status  = document.getElementById('picker-status');
+
+    section.style.display = 'block';
+    grid.innerHTML        = '';
+    status.textContent    = 'Loading images from the page…';
+
+    // Fetch raw URL list from server
+    let pageImages = [];
+    try {
+      const res  = await fetch('/api/recipe-images', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({url: pageUrl}),
+      });
+      const data = await res.json();
+      pageImages = data.images || [];
+    } catch (_) {
+      status.textContent = 'Could not load images from this page.';
+      return;
+    }
+
+    // Build candidate list: extractor first (deduplicated), then the rest
+    const extFirst   = extractorUrl ? [extractorUrl] : [];
+    const rest       = pageImages.filter(u => u !== extractorUrl);
+    const candidates = [...extFirst, ...rest];
+
+    if (candidates.length === 0) {
+      status.textContent = 'No images found on this page.';
+      return;
+    }
+
+    status.textContent = 'Checking images…';
+
+    // Hard cut-off after 12 s — render whatever we have collected by then
+    const cutoffTimer = setTimeout(() => {
+      if (!_pickerClosed) { _pickerClosed = true; _finishPicker(); }
+    }, 12000);
+
+    // Test every candidate in parallel; add passing ones to _pickerValid
+    await Promise.allSettled(candidates.map(async url => {
+      const dim = await _testImage(url);
+      if (!dim || _pickerClosed) return;
+
+      const isExtractor = url === _pickerExtractor;
+      const nonExtCount = _pickerValid.filter(i => i.url !== _pickerExtractor).length;
+
+      // Slot limits: 1 extractor slot + 14 others = 15 total
+      if (!isExtractor && nonExtCount >= 14) return;
+      if (_pickerValid.find(i => i.url === url)) return; // deduplicate
+
+      _pickerValid.push({url, w: dim.w, h: dim.h});
+
+      // Live count update while loading
+      if (!_pickerClosed) {
+        const n = _pickerValid.length;
+        status.textContent = `Found ${n} image${n !== 1 ? 's' : ''}…`;
+      }
+    }));
+
+    clearTimeout(cutoffTimer);
+    _pickerClosed = true;
+    _finishPicker();
+  }
+
+  // Loads one image off-screen and resolves with its dimensions if both
+  // axes are ≥ 200 px, or null otherwise. Times out after 8 s.
+  function _testImage(url) {
+    return new Promise(resolve => {
+      const img = new Image();
+      const t   = setTimeout(() => resolve(null), 8000);
+      img.onload = () => {
+        clearTimeout(t);
+        const w = img.naturalWidth, h = img.naturalHeight;
+        resolve(w >= 200 && h >= 200 ? {w, h} : null);
+      };
+      img.onerror = () => { clearTimeout(t); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  // Sort, trim to 15, and render the final grid
+  function _finishPicker() {
+    const grid   = document.getElementById('picker-grid');
+    const status = document.getElementById('picker-status');
+
+    const extractor = _pickerValid.find(i => i.url === _pickerExtractor);
+    const others    = _pickerValid
+      .filter(i => i.url !== _pickerExtractor)
+      .sort((a, b) => (b.w * b.h) - (a.w * a.h))  // largest area first
+      .slice(0, 14);
+    const ordered = extractor ? [extractor, ...others] : others;
+
+    if (ordered.length === 0) {
+      status.textContent = 'No suitable images found (all were smaller than 200 × 200 px).';
+      return;
+    }
+
+    const n = ordered.length;
+    status.textContent = `${n} image${n !== 1 ? 's' : ''} — click one to select it.`;
+    grid.innerHTML = '';
+
+    ordered.forEach((item, i) => {
+      const tile = _createPickerTile(item.url);
+      grid.appendChild(tile);
+      if (i === 0) _selectPickerImage(item.url); // auto-select first (extractor)
+    });
+  }
+
+  function _createPickerTile(url) {
+    const tile       = document.createElement('div');
+    tile.className   = 'picker-tile';
+    tile.dataset.url = url;
+
+    const img   = document.createElement('img');
+    img.src     = url;
+    img.alt     = '';
+    img.loading = 'lazy';
+    tile.appendChild(img);
+
+    tile.addEventListener('click', () => {
+      // Clicking a tile clears any pending file upload and selects this URL
+      const fileInput = document.getElementById('image_file');
+      if (fileInput) fileInput.value = '';
+      document.getElementById('img-preview').classList.remove('visible');
+      _selectPickerImage(url);
+    });
+
+    return tile;
+  }
+
+  function _selectPickerImage(url) {
+    _pickerSelected = url;
+    document.getElementById('image_url').value = url;
+    _showPreview(url);
+    document.querySelectorAll('.picker-tile').forEach(t =>
+      t.classList.toggle('selected', t.dataset.url === url)
+    );
   }
 
   // ── Import from URL ───────────────────────────────────────────────────────
   async function scrapeRecipe() {
-    const urlInput  = document.getElementById('scrape-url');
-    const statusEl  = document.getElementById('scrape-status');
-    const btn       = document.getElementById('scrape-btn');
-    const url       = urlInput.value.trim();
+    const urlInput = document.getElementById('scrape-url');
+    const statusEl = document.getElementById('scrape-status');
+    const btn      = document.getElementById('scrape-btn');
+    const url      = urlInput.value.trim();
 
     if (!url) {
       statusEl.style.color = '#c0392b';
@@ -629,16 +815,16 @@
       return;
     }
 
-    btn.disabled        = true;
-    btn.textContent     = '⏳ Fetching…';
+    btn.disabled         = true;
+    btn.textContent      = '⏳ Fetching…';
     statusEl.style.color = 'var(--muted)';
     statusEl.textContent = 'Contacting website — this may take a few seconds…';
 
     try {
       const res  = await fetch('/api/scrape', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ url }),
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({url}),
       });
       const json = await res.json();
 
@@ -651,7 +837,7 @@
       const d = json.data;
 
       // Fill text fields
-      if (d.title)       document.getElementById('title').value        = d.title;
+      if (d.title)       document.getElementById('title').value       = d.title;
       if (d.author && d.author !== 'Unknown Author')
                          document.getElementById('original_author').value = d.author;
       if (d.yields && d.yields !== 'Unknown Yield')
@@ -659,7 +845,7 @@
       if (d.description && d.description !== 'No description available.')
                          document.getElementById('description').value  = d.description;
 
-      // Instructions — join array or use string
+      // Instructions
       if (d.instructions) {
         const inst = Array.isArray(d.instructions)
           ? d.instructions.join('\n\n')
@@ -667,7 +853,7 @@
         if (inst.trim()) document.getElementById('instructions').value = inst;
       }
 
-      // Ingredients — parse each string into qty / unit / name, then populate rows
+      // Ingredients
       if (d.ingredients && d.ingredients.length) {
         document.getElementById('ing-rows').innerHTML = '';
         d.ingredients.forEach(ing => {
@@ -676,14 +862,11 @@
         });
       }
 
-      // Image — populate the URL field and show a preview
-      if (d.image) {
-        document.getElementById('image_url').value = d.image;
-        previewUrl(d.image);
-      }
-
       statusEl.style.color = '#27ae60';
-      statusEl.textContent  = '✓ Recipe imported! Review the fields below and make any adjustments.';
+      statusEl.textContent = '✓ Recipe imported! Review the fields below and make any adjustments.';
+
+      // Kick off image picker — runs concurrently, populates image_url via auto-select
+      initImagePicker(d.image || null, url);
 
     } catch (err) {
       statusEl.style.color = '#c0392b';
