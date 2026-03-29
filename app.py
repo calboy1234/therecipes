@@ -10,14 +10,30 @@ import json
 import mimetypes
 import os
 import sqlite3
+import uuid
+
+import requests as http_requests
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, send_file, abort, g, jsonify
+    url_for, send_file, abort, g, jsonify, flash
 )
+from werkzeug.utils import secure_filename
 from website_recipe_extractor import get_recipe_json
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
+
 DB_PATH = os.environ.get("DB_PATH", "/data/database/therecipes.db")
+
+# All recipe images are stored here — the ONLY directory app.py will read/write.
+# Set UPLOAD_DIR in the environment to override (e.g. for local development).
+UPLOAD_DIR = os.path.realpath(
+    os.environ.get("UPLOAD_DIR", "/data/uploads/images")
+)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+MAX_IMAGE_BYTES    = 10 * 1024 * 1024  # 10 MB
 
 CATEGORIES = [
     "Appetizer",
@@ -56,7 +72,6 @@ def close_db(exc=None):
         db.close()
 
 
-
 def _normalize_name(raw: str) -> str:
     """
     Convert a person-name field to consistent proper case.
@@ -79,8 +94,24 @@ def _normalize_name(raw: str) -> str:
     return " ".join(result)
 
 
+# ── Image helpers ─────────────────────────────────────────────────────────────
+
+def _is_safe_image_path(path: str) -> bool:
+    """
+    Return True only if the resolved real path lives inside UPLOAD_DIR.
+    Uses os.path.realpath to defeat symlink and path-traversal attacks.
+    """
+    real = os.path.realpath(path)
+    return real.startswith(UPLOAD_DIR + os.sep) or real == UPLOAD_DIR
+
+
 def _hash_file(path: str) -> str | None:
-    """SHA-256 of a local file. Returns None if file doesn't exist."""
+    """
+    SHA-256 of a local file.
+    Returns None if the file doesn't exist or is outside UPLOAD_DIR.
+    """
+    if not path or not _is_safe_image_path(path):
+        return None
     if not os.path.isfile(path):
         return None
     h = hashlib.sha256()
@@ -88,6 +119,116 @@ def _hash_file(path: str) -> str | None:
         while chunk := f.read(1024 * 1024):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _ext_from_content_type(content_type: str) -> str | None:
+    """Map a Content-Type header to a safe file extension."""
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/png":  ".png",
+        "image/gif":  ".gif",
+        "image/webp": ".webp",
+    }
+    for mime, ext in mapping.items():
+        if mime in content_type:
+            return ext
+    return None
+
+
+def save_image_from_url(url: str) -> str | None:
+    """
+    Download an image from a remote URL into UPLOAD_DIR.
+    Validates content type and enforces MAX_IMAGE_BYTES.
+    Returns the saved local path on success, None on any failure.
+    """
+    if not url.startswith(("http://", "https://")):
+        return None
+    try:
+        resp = http_requests.get(url, timeout=15, stream=True)
+        resp.raise_for_status()
+
+        content_type = resp.headers.get("Content-Type", "")
+        ext = _ext_from_content_type(content_type)
+        if not ext:
+            # Fall back to the URL's own extension
+            ext = os.path.splitext(url.split("?")[0])[-1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            return None
+
+        filename = f"{uuid.uuid4()}{ext}"
+        dest     = os.path.join(UPLOAD_DIR, filename)
+
+        size = 0
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=65536):
+                size += len(chunk)
+                if size > MAX_IMAGE_BYTES:
+                    os.remove(dest)
+                    return None
+                f.write(chunk)
+
+        return dest
+    except Exception:
+        return None
+
+
+def save_image_from_upload(file_storage) -> str | None:
+    """
+    Save a Werkzeug FileStorage upload into UPLOAD_DIR.
+    Validates extension and enforces MAX_IMAGE_BYTES.
+    Returns the saved local path on success, None on any failure.
+    """
+    if not file_storage or not file_storage.filename:
+        return None
+
+    original_name = secure_filename(file_storage.filename)
+    ext = os.path.splitext(original_name)[-1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return None
+
+    filename = f"{uuid.uuid4()}{ext}"
+    dest     = os.path.join(UPLOAD_DIR, filename)
+    file_storage.save(dest)
+
+    if os.path.getsize(dest) > MAX_IMAGE_BYTES:
+        os.remove(dest)
+        return None
+
+    return dest
+
+
+def _resolve_image(existing_path: str | None = None) -> tuple[str | None, str | None]:
+    """
+    Determine the image path and hash for a recipe save.
+
+    Priority:
+      1. Uploaded file  — multipart field "image_file"
+      2. URL field      — form field "image_url", downloaded and stored locally
+      3. Keep existing  — no new image submitted
+
+    Returns (image_path, image_hash).
+    On failure a flash warning is set and existing values are preserved
+    so the recipe save still completes.
+    """
+    uploaded  = request.files.get("image_file")
+    url_input = request.form.get("image_url", "").strip()
+
+    # Priority 1: file upload
+    if uploaded and uploaded.filename:
+        path = save_image_from_upload(uploaded)
+        if path:
+            return path, _hash_file(path)
+        flash("Image upload failed — unsupported format or file too large (max 10 MB).", "warning")
+
+    # Priority 2: URL download
+    elif url_input:
+        path = save_image_from_url(url_input)
+        if path:
+            return path, _hash_file(path)
+        flash("Could not download the image from that URL.", "warning")
+
+    # Priority 3: keep whatever was already stored
+    return existing_path, _hash_file(existing_path) if existing_path else None
 
 
 # ── Redirect root to recipes ──────────────────────────────────────────────────
@@ -104,7 +245,7 @@ def recipe_list():
     db       = get_db()
     q        = request.args.get("q", "").strip()
     category = request.args.get("category", "").strip()
-    sort     = request.args.get("sort", "newest")   # newest | rating | title
+    sort     = request.args.get("sort", "newest")   # newest | title
 
     conditions, params = ["r.is_deleted = 0"], []
     if q:
@@ -157,18 +298,14 @@ def recipe_view(recipe_id):
 @app.route("/recipes/new", methods=["GET", "POST"])
 def recipe_new():
     if request.method == "POST":
-        db         = get_db()
-        image_path = request.form.get("image_path", "").strip() or None
+        db = get_db()
 
         raw_author    = request.form.get("original_author",  "").strip() or None
         raw_submitter = request.form.get("recipe_submitter", "").strip() or None
         author    = _normalize_name(raw_author)    if raw_author    else None
         submitter = _normalize_name(raw_submitter) if raw_submitter else None
 
-        # Compute hash if image_path is a local file
-        image_hash = None
-        if image_path and not image_path.startswith(("http://", "https://")):
-            image_hash = _hash_file(image_path)
+        image_path, image_hash = _resolve_image()
 
         cur = db.execute("""
             INSERT INTO recipes
@@ -205,20 +342,12 @@ def recipe_edit(recipe_id):
         abort(404)
 
     if request.method == "POST":
-        image_path = request.form.get("image_path", "").strip() or None
-
         raw_author    = request.form.get("original_author",  "").strip() or None
         raw_submitter = request.form.get("recipe_submitter", "").strip() or None
         author    = _normalize_name(raw_author)    if raw_author    else None
         submitter = _normalize_name(raw_submitter) if raw_submitter else None
 
-        # Recompute hash only if image_path changed
-        image_hash = recipe["image_hash"]
-        if image_path != recipe["image_path"]:
-            if image_path and not image_path.startswith(("http://", "https://")):
-                image_hash = _hash_file(image_path)
-            else:
-                image_hash = None
+        image_path, image_hash = _resolve_image(existing_path=recipe["image_path"])
 
         db.execute("""
             UPDATE recipes
@@ -261,22 +390,33 @@ def recipe_delete(recipe_id):
 @app.route("/recipe/<int:recipe_id>/image")
 def recipe_image(recipe_id):
     """
-    Serve the recipe's attached image from the local filesystem.
-    Only used when image_path is a local path, not a URL.
+    Serve a recipe's image from UPLOAD_DIR.
+    Refuses to serve anything outside that directory (path-traversal guard).
     """
     db     = get_db()
     recipe = db.execute(
         "SELECT image_path FROM recipes WHERE id = ?", (recipe_id,)
     ).fetchone()
+
     if not recipe or not recipe["image_path"]:
         abort(404)
+
     path = recipe["image_path"]
+
+    # Guard against any legacy rows that stored an external URL
     if path.startswith(("http://", "https://")):
-        abort(400)   # caller should use the URL directly
-    if not os.path.isfile(path):
+        abort(400)
+
+    # Path-confinement: block serving files outside UPLOAD_DIR
+    if not _is_safe_image_path(path):
+        abort(403)
+
+    real = os.path.realpath(path)
+    if not os.path.isfile(real):
         abort(404)
-    mime, _ = mimetypes.guess_type(path)
-    return send_file(path, mimetype=mime or "image/jpeg")
+
+    mime, _ = mimetypes.guess_type(real)
+    return send_file(real, mimetype=mime or "image/jpeg")
 
 
 # ── Scrape recipe from URL ────────────────────────────────────────────────────
