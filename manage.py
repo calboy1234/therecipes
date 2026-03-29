@@ -2,12 +2,8 @@
 """
 manage.py — TheRecipes database management CLI
 
-This script is the ONLY way to create or modify the database schema.
-The Flask app has no database management code — it only reads and writes recipes.
-
 Usage:
     python manage.py initdb     Create tables if they don't exist (safe on existing DB)
-    python manage.py migrate    Apply schema changes to an existing database
     python manage.py backup     Copy DB to a timestamped backup file
     python manage.py status     Show table info, row counts, schema version
 
