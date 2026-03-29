@@ -89,7 +89,6 @@ def _normalize_name(raw: str) -> str:
         if i > 0 and word.lower() in particles:
             result.append(word.lower())
         else:
-            # Capitalise after apostrophe too (O'brien → O'Brien)
             result.append("'".join(p.capitalize() for p in word.split("'")))
     return " ".join(result)
 
@@ -150,7 +149,6 @@ def save_image_from_url(url: str) -> str | None:
         content_type = resp.headers.get("Content-Type", "")
         ext = _ext_from_content_type(content_type)
         if not ext:
-            # Fall back to the URL's own extension
             ext = os.path.splitext(url.split("?")[0])[-1].lower()
         if ext not in ALLOWED_EXTENSIONS:
             return None
@@ -213,21 +211,18 @@ def _resolve_image(existing_path: str | None = None) -> tuple[str | None, str | 
     uploaded  = request.files.get("image_file")
     url_input = request.form.get("image_url", "").strip()
 
-    # Priority 1: file upload
     if uploaded and uploaded.filename:
         path = save_image_from_upload(uploaded)
         if path:
             return path, _hash_file(path)
         flash("Image upload failed — unsupported format or file too large (max 10 MB).", "warning")
 
-    # Priority 2: URL download
     elif url_input:
         path = save_image_from_url(url_input)
         if path:
             return path, _hash_file(path)
         flash("Could not download the image from that URL.", "warning")
 
-    # Priority 3: keep whatever was already stored
     return existing_path, _hash_file(existing_path) if existing_path else None
 
 
@@ -245,7 +240,7 @@ def recipe_list():
     db       = get_db()
     q        = request.args.get("q", "").strip()
     category = request.args.get("category", "").strip()
-    sort     = request.args.get("sort", "newest")   # newest | title
+    sort     = request.args.get("sort", "newest")
 
     conditions, params = ["r.is_deleted = 0"], []
     if q:
@@ -256,7 +251,6 @@ def recipe_list():
         params.append(category)
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-
     order = {
         "title":  "r.title ASC",
         "newest": "r.created_at DESC",
@@ -403,11 +397,9 @@ def recipe_image(recipe_id):
 
     path = recipe["image_path"]
 
-    # Guard against any legacy rows that stored an external URL
     if path.startswith(("http://", "https://")):
         abort(400)
 
-    # Path-confinement: block serving files outside UPLOAD_DIR
     if not _is_safe_image_path(path):
         abort(403)
 
@@ -432,6 +424,60 @@ def api_scrape():
         return app.response_class(result, status=200, mimetype="application/json")
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ── Scrape page images for the image picker ───────────────────────────────────
+
+@app.route("/api/recipe-images", methods=["POST"])
+def api_recipe_images():
+    """
+    Fetch a recipe page and return all candidate image URLs found in <img> tags.
+
+    The client is responsible for:
+      - loading each URL to check natural dimensions (filter < 200px either axis)
+      - sorting non-extractor images by area descending
+      - keeping the extractor image first
+      - capping the displayed set at 15
+
+    Checks src, data-src, data-lazy-src, and data-original attributes in that
+    order, skipping inline data: URIs.
+    """
+    data = request.get_json(force=True) or {}
+    url  = data.get("url", "").strip()
+
+    if not url.startswith(("http://", "https://")):
+        return jsonify({"error": "Invalid URL", "images": []}), 400
+
+    try:
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+
+        resp = http_requests.get(
+            url, timeout=12,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; TheRecipes/1.0)"},
+        )
+        resp.raise_for_status()
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Attributes checked in priority order; data: URIs are always skipped
+        SRC_ATTRS = ("src", "data-src", "data-lazy-src", "data-original")
+
+        seen, images = set(), []
+        for tag in soup.find_all("img"):
+            for attr in SRC_ATTRS:
+                raw = (tag.get(attr) or "").strip()
+                if raw and not raw.startswith("data:"):
+                    abs_src = urljoin(url, raw)
+                    if abs_src.startswith(("http://", "https://")) and abs_src not in seen:
+                        seen.add(abs_src)
+                        images.append(abs_src)
+                    break  # use the first non-empty attribute found
+
+        return jsonify({"images": images})
+
+    except Exception as e:
+        return jsonify({"error": str(e), "images": []}), 500
 
 
 # ── Search redirect ───────────────────────────────────────────────────────────
