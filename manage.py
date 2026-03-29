@@ -23,8 +23,7 @@ from datetime import datetime
 
 DB_PATH = os.environ.get("DB_PATH", "/data/database/therecipes.db")
 
-# Increment this whenever a migration is added below.
-SCHEMA_VERSION = 2
+
 
 
 # ── DB connection ─────────────────────────────────────────────────────────────
@@ -54,11 +53,12 @@ def cmd_initdb(args):
         title             TEXT,
         original_author   TEXT,
         recipe_submitter  TEXT,
+        description       TEXT,
+        serving_size      TEXT,
         ingredients       TEXT,
         instructions      TEXT,
         notes             TEXT,
         dish_category     TEXT,
-        rating            INTEGER DEFAULT -1,
         image_path        TEXT,
         image_hash        TEXT,
         created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -66,73 +66,16 @@ def cmd_initdb(args):
     )
     """)
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS schema_version (
-        version    INTEGER PRIMARY KEY,
-        applied_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    # Record initial version
-    cur.execute(
-        "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
-        (SCHEMA_VERSION,)
-    )
-
     # Indexes
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_category  ON recipes(dish_category)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_rating    ON recipes(rating)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_submitter ON recipes(recipe_submitter)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_deleted   ON recipes(is_deleted)")
 
     conn.commit()
     conn.close()
 
     print(f"✓  Database initialised at: {DB_PATH}")
-    print(f"   Schema version: {SCHEMA_VERSION}")
 
-
-def cmd_migrate(args):
-    """
-    Apply any schema migrations needed to bring an existing database up to date.
-    Add new migrations as additional `if current_version < N` blocks below.
-    """
-    conn = get_conn()
-    cur  = conn.cursor()
-
-    # Determine current version
-    try:
-        row     = cur.execute("SELECT MAX(version) FROM schema_version").fetchone()
-        current = row[0] if row[0] is not None else 0
-    except sqlite3.OperationalError:
-        current = 0
-
-    print(f"Current schema version : {current}")
-    print(f"Target schema version  : {SCHEMA_VERSION}")
-
-    if current >= SCHEMA_VERSION:
-        print("✓  Already up to date — nothing to do.")
-        conn.close()
-        return
-
-    # ── Future migrations go here ─────────────────────────────────────────────
-
-    if current < 2:
-        cur.execute("ALTER TABLE recipes ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_deleted ON recipes(is_deleted)")
-        cur.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (2)")
-        print("  Applied migration 2: added 'is_deleted' column (soft-delete support)")
-    # Example pattern:
-    #
-    # if current < 2:
-    #     cur.execute("ALTER TABLE recipes ADD COLUMN servings TEXT")
-    #     cur.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (2)")
-    #     print("  Applied migration 2: added 'servings' column")
-    #
-    # ─────────────────────────────────────────────────────────────────────────
-
-    conn.commit()
-    conn.close()
-    print("✓  Migrations complete.")
 
 
 def cmd_backup(args):
@@ -174,18 +117,14 @@ def cmd_status(args):
     print(f"Size      : {size:,} bytes ({size / 1024:.1f} KB)")
     print()
 
-    # Schema version
     try:
-        row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
-        print(f"Schema version : {row[0] if row[0] is not None else 'unknown'}")
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
     except sqlite3.OperationalError:
-        print("Schema version : unknown  (run 'initdb' first)")
-    print()
-
-    # Table row counts
-    tables = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    ).fetchall()
+        print("No tables found (run 'initdb' first).")
+        conn.close()
+        return
 
     if not tables:
         print("No tables found.")
@@ -200,11 +139,9 @@ def cmd_status(args):
         print(f"{name:<25} {count:>8,}")
 
     # Recipe summary
-    print()
     try:
-        total   = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
-        rated   = conn.execute("SELECT COUNT(*) FROM recipes WHERE rating >= 0").fetchone()[0]
-        cats    = conn.execute(
+        total      = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+        cats       = conn.execute(
             "SELECT COUNT(DISTINCT dish_category) FROM recipes "
             "WHERE dish_category IS NOT NULL AND dish_category != ''"
         ).fetchone()[0]
@@ -214,7 +151,6 @@ def cmd_status(args):
         ).fetchone()[0]
 
         print(f"Recipes total    : {total:,}")
-        print(f"Rated            : {rated:,}  ({rated/total*100:.0f}%)" if total else "Rated            : 0")
         print(f"Categories used  : {cats:,}")
         print(f"Submitters       : {submitters:,}")
     except Exception:
@@ -227,7 +163,6 @@ def cmd_status(args):
 
 COMMANDS = {
     "initdb":  cmd_initdb,
-    "migrate": cmd_migrate,
     "backup":  cmd_backup,
     "status":  cmd_status,
 }
@@ -241,9 +176,8 @@ def main():
         epilog="\n".join([
             "Commands:",
             "  initdb    Create tables (safe on existing DB — never overwrites data)",
-            "  migrate   Apply schema changes to an existing database",
             "  backup    Copy DB to a timestamped backup in the same directory",
-            "  status    Show DB path, size, schema version, and row counts",
+            "  status    Show DB path, size, and row counts",
             "",
             "Environment:",
             "  DB_PATH   Override database path",

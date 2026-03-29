@@ -48,14 +48,6 @@ def close_db(exc=None):
         db.close()
 
 
-def _parse_rating(value) -> int:
-    """Clamp to -1 (unrated) or 0–10."""
-    try:
-        r = int(value)
-        return max(-1, min(10, r))
-    except (TypeError, ValueError):
-        return -1
-
 
 def _normalize_name(raw: str) -> str:
     """
@@ -117,7 +109,6 @@ def recipe_list():
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     order = {
-        "rating": "r.rating DESC, r.created_at DESC",
         "title":  "r.title ASC",
         "newest": "r.created_at DESC",
     }.get(sort, "r.created_at DESC")
@@ -158,8 +149,7 @@ def recipe_view(recipe_id):
 @app.route("/recipes/new", methods=["GET", "POST"])
 def recipe_new():
     if request.method == "POST":
-        db     = get_db()
-        rating = _parse_rating(request.form.get("rating", "-1"))
+        db         = get_db()
         image_path = request.form.get("image_path", "").strip() or None
 
         raw_author    = request.form.get("original_author",  "").strip() or None
@@ -174,18 +164,19 @@ def recipe_new():
 
         cur = db.execute("""
             INSERT INTO recipes
-                (title, original_author, recipe_submitter, ingredients, instructions,
-                 notes, dish_category, rating, image_path, image_hash, is_deleted)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                (title, original_author, recipe_submitter, description, serving_size,
+                 ingredients, instructions, notes, dish_category, image_path, image_hash, is_deleted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         """, (
-            request.form.get("title", "").strip() or None,
+            request.form.get("title",        "").strip() or None,
             author,
             submitter,
-            request.form.get("ingredients", "").strip() or None,
+            request.form.get("description",  "").strip() or None,
+            request.form.get("serving_size", "").strip() or None,
+            request.form.get("ingredients",  "").strip() or None,
             request.form.get("instructions", "").strip() or None,
-            request.form.get("notes", "").strip() or None,
-            request.form.get("dish_category", "").strip() or None,
-            rating,
+            request.form.get("notes",        "").strip() or None,
+            request.form.get("dish_category","").strip() or None,
             image_path,
             image_hash,
         ))
@@ -207,9 +198,8 @@ def recipe_edit(recipe_id):
         abort(404)
 
     if request.method == "POST":
-        rating     = _parse_rating(request.form.get("rating", "-1"))
         image_path = request.form.get("image_path", "").strip() or None
-        
+
         raw_author    = request.form.get("original_author",  "").strip() or None
         raw_submitter = request.form.get("recipe_submitter", "").strip() or None
         author    = _normalize_name(raw_author)    if raw_author    else None
@@ -226,18 +216,20 @@ def recipe_edit(recipe_id):
         db.execute("""
             UPDATE recipes
             SET title=?, original_author=?, recipe_submitter=?,
+                description=?, serving_size=?,
                 ingredients=?, instructions=?, notes=?,
-                dish_category=?, rating=?, image_path=?, image_hash=?
+                dish_category=?, image_path=?, image_hash=?
             WHERE id=?
         """, (
-            request.form.get("title", "").strip() or None,
+            request.form.get("title",        "").strip() or None,
             author,
             submitter,
-            request.form.get("ingredients", "").strip() or None,
+            request.form.get("description",  "").strip() or None,
+            request.form.get("serving_size", "").strip() or None,
+            request.form.get("ingredients",  "").strip() or None,
             request.form.get("instructions", "").strip() or None,
-            request.form.get("notes", "").strip() or None,
-            request.form.get("dish_category", "").strip() or None,
-            rating,
+            request.form.get("notes",        "").strip() or None,
+            request.form.get("dish_category","").strip() or None,
             image_path,
             image_hash,
             recipe_id,

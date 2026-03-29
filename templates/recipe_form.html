@@ -4,14 +4,6 @@
 
 {% block content %}
 <style>
-  /* ── Live star preview ── */
-  #rating-stars {
-    font-size: 1.15rem;
-    letter-spacing: .06em;
-    transition: color .15s;
-    min-width: 6rem;
-  }
-
   /* ── Image preview ── */
   #img-preview {
     display: none;
@@ -129,6 +121,12 @@
            autofocus />
   </div>
 
+  <div class="form-group">
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="3"
+              placeholder="A short description of the recipe…">{{ recipe['description'] or '' if not is_new else '' }}</textarea>
+  </div>
+
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
     <div class="form-group">
       <label for="dish_category">Category</label>
@@ -142,22 +140,10 @@
     </div>
 
     <div class="form-group">
-      <label for="rating">Rating</label>
-      <div style="display:flex; align-items:center; gap:.75rem;">
-        <select id="rating" name="rating" style="flex:1;"
-                onchange="updateStars(this.value)">
-          <option value="-1" {{ 'selected' if is_new or (recipe['rating']|default(-1))|int == -1 }}>
-            — Unrated
-          </option>
-          {% for v in range(0, 11) %}
-            <option value="{{ v }}"
-              {{ 'selected' if (not is_new and (recipe['rating']|default(-1))|int == v) }}>
-              {{ v }} / 10{% if v == 0 %} — Poor{% elif v <= 3 %} — Below avg{% elif v <= 5 %} — Average{% elif v <= 7 %} — Good{% elif v == 8 %} — Very good{% elif v == 9 %} — Excellent{% else %} — Exceptional{% endif %}
-            </option>
-          {% endfor %}
-        </select>
-        <span id="rating-stars"></span>
-      </div>
+      <label for="serving_size">Serving Size</label>
+      <input type="text" id="serving_size" name="serving_size"
+             value="{{ recipe['serving_size'] or '' if not is_new else '' }}"
+             placeholder="e.g. Serves 4, Makes 24 cookies" />
     </div>
   </div>
 
@@ -260,22 +246,6 @@
 </form>
 
 <script>
-  // ── Star preview ──────────────────────────────────────────────────────────
-  function updateStars(val) {
-    const el = document.getElementById('rating-stars');
-    const v  = parseInt(val, 10);
-    if (v < 0) { el.innerHTML = ''; el.style.color = ''; return; }
-    const filled = Math.floor(v / 2);
-    const half   = v % 2 === 1;
-    const empty  = 5 - filled - (half ? 1 : 0);
-    el.innerHTML =
-      '<span style="color:inherit">' + '★'.repeat(filled) + '</span>' +
-      (half ? '<span style="display:inline-block;overflow:hidden;width:.55em;color:inherit">★</span>' : '') +
-      '<span style="opacity:.35">' + '☆'.repeat(empty) + '</span>';
-    el.style.color = v >= 7 ? '#27ae60' : (v >= 4 ? '#f39c12' : '#c0392b');
-  }
-  updateStars(document.getElementById('rating').value);
-
   // ── Image preview ─────────────────────────────────────────────────────────
   function previewImage(val) {
     const img = document.getElementById('img-preview');
