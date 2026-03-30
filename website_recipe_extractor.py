@@ -103,7 +103,7 @@ def fetch_recipe_scraper(url: str, max_retries: int = 2, timeout: int = 10) -> O
             )
             response.raise_for_status()
 
-            scraper = scrape_html(html=response.text, org_url=url)
+            scraper = scrape_html(html=response.text, org_url=url, wild_mode=True)
             logger.info("SUCCESS: Page fetched and parsed successfully.")
             return scraper
 
@@ -127,10 +127,10 @@ def extract_recipe_to_dict(scraper: Any) -> RecipeData:
     helper = ScraperHelper(scraper)
     
     return {
-        "title":       helper.safe_get("title", "Unknown Title"),
-        "author":      helper.safe_get("author", "Unknown Author"),
-        "yields":      helper.safe_get("yields", "Unknown Yield"),
-        "description": helper.safe_get("description", "No description available."),
+        "title":       helper.safe_get("title", ""),
+        "author":      helper.safe_get("author", ""),
+        "yields":      helper.safe_get("yields", ""),
+        "description": helper.safe_get("description", ""),
         "ingredients": helper.safe_get("ingredients", []),
         "instructions": helper.safe_get("instructions", ""),
         "total_time":  helper.safe_get("total_time", -1),
