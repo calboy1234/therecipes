@@ -1067,22 +1067,45 @@
         document.getElementById('original_author').value = d.author;
       if (d.yields && d.yields !== 'Unknown Yield')
         document.getElementById('serving_size').value = d.yields;
-      if (d.description && d.description !== 'No description available.')
-        document.getElementById('description').value = d.description;
+      if (d.description && d.description !== 'No description available.') {
+        const desc = String(d.description);
+        document.getElementById('description').value = desc.split('\n')
+          .filter(line => {
+            const trimmed = line.trim();
+            if (!trimmed) return true;
+            const cleaned = trimmed.replace(/[\s\.,\)\(\-]/g, '');
+            return !(cleaned.length > 0 && /^\d+$/.test(cleaned));
+          })
+          .join('\n').trim();
+      }
 
       if (d.instructions) {
         let inst;
+        const filterNumericLines = (s) => {
+          const cleaned = s.trim().replace(/[\s\.,\)\(\-]/g, '');
+          return !(cleaned.length > 0 && /^\d+$/.test(cleaned));
+        };
+
         if (Array.isArray(d.instructions)) {
-          // Number each step and separate with a blank line so the view can split them
+          // Filter out purely numeric elements and then number each step
           inst = d.instructions
             .map(s => s.trim())
             .filter(Boolean)
+            .filter(filterNumericLines)
             .map((s, i) => `${i + 1}. ${s}`)
             .join('\n\n');
         } else {
           inst = String(d.instructions);
+          // Filter out lines that are just numbers
+          inst = inst.split('\n')
+            .filter(line => {
+              const trimmed = line.trim();
+              if (!trimmed) return true;
+              return filterNumericLines(trimmed);
+            })
+            .join('\n');
         }
-        if (inst.trim()) document.getElementById('instructions').value = inst;
+        if (inst.trim()) document.getElementById('instructions').value = inst.trim();
       }
 
       if (d.ingredients && d.ingredients.length) {
