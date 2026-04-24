@@ -128,17 +128,91 @@
     margin-top: .1rem;
   }
 
-  /* ── Recipe image ── */
+  /* ── Header Grid ── */
+  .recipe-header-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+    align-items: start;
+  }
+  
+  @media (min-width: 901px) {
+    .recipe-header-grid.has-image {
+      grid-template-columns: 1fr 400px;
+    }
+  }
+
+  .header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .recipe-description {
+    margin-top: .75rem;
+    font-size: 1rem;
+    color: var(--muted);
+    max-width: 600px;
+    line-height: 1.6;
+  }
+
+  .header-image {
+    width: 100%;
+  }
+
+  .recipe-img-new {
+    width: 100%;
+    max-height: 500px;
+    object-fit: cover;
+    display: block;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  @media (max-width: 900px) {
+    .header-image {
+      order: -1; /* Image on top for mobile */
+    }
+  }
+
+  /* ── Recipe image (legacy, keeping for reference if needed but mostly replaced by new) ── */
   .recipe-img {
     width: 100%; max-height: 380px; object-fit: cover;
     display: block; border-radius: var(--radius);
     margin-bottom: 1.5rem;
+  /* ── Printing ── */
+  @media print {
+    .recipe-header-grid.has-image { grid-template-columns: 1fr !important; }
+    .header-image { max-width: 100%; margin-top: 1rem; }
+    .recipe-img-new { max-height: 400px; width: auto; margin: 0 auto; }
+    .two-col { grid-template-columns: 1fr !important; gap: 0.5rem !important; }
+    .section-heading { margin-top: 1.5rem; }
+    body { font-size: 12pt; color: #000; }
+    .recipe-title { font-size: 24pt; }
+    
+    /* Hide image if no-image class is present on body */
+    body.print-no-image .header-image { display: none !important; }
   }
 </style>
 
-<!-- ── Header ── -->
-<div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
-  <div>
+<script>
+  function printRecipe(includeImage) {
+    if (!includeImage) {
+      document.body.classList.add('print-no-image');
+    }
+    window.print();
+    // Use a slight delay to remove the class after print dialog opens
+    // (most browsers take a snapshot for the preview immediately)
+    setTimeout(() => {
+      document.body.classList.remove('print-no-image');
+    }, 500);
+  }
+</script>
+
+<!-- ── Header & Image ── -->
+<div class="recipe-header-grid {{ 'has-image' if recipe.image_path else '' }}">
+  <div class="header-main">
     <h1 class="recipe-title">{{ recipe.title or 'Untitled Recipe' }}</h1>
 
     <div class="recipe-meta">
@@ -166,30 +240,32 @@
     </div>
 
     {% if recipe.description %}
-    <p style="margin-top:.75rem; font-size:1rem; color:var(--muted); max-width:560px; line-height:1.6;">
+    <p class="recipe-description">
       {{ recipe.description }}
     </p>
     {% endif %}
+
+    <div class="gap no-print" style="margin-top: 1rem;">
+      <button onclick="printRecipe(true)" class="btn btn-outline">🖨 Print</button>
+      <button onclick="printRecipe(false)" class="btn btn-outline">📄 Print (no picture)</button>
+      {% if is_authenticated %}
+        <a href="/recipe/{{ recipe.id }}/edit" class="btn btn-primary">✏ Edit</a>
+      {% endif %}
+    </div>
   </div>
 
-  <div class="gap no-print">
-    <button onclick="window.print()" class="btn btn-outline">🖨 Print</button>
-    {% if is_authenticated %}
-      <a href="/recipe/{{ recipe.id }}/edit" class="btn btn-primary">✏ Edit</a>
+  {% if recipe.image_path %}
+  <div class="header-image">
+    {% if recipe.image_path.startswith('http') %}
+      <img src="{{ recipe.image_path }}" alt="{{ recipe.title or 'Recipe photo' }}"
+           class="recipe-img-new" onerror="this.parentElement.style.display='none'" />
+    {% else %}
+      <img src="/recipe/{{ recipe.id }}/image" alt="{{ recipe.title or 'Recipe photo' }}"
+           class="recipe-img-new" onerror="this.parentElement.style.display='none'" />
     {% endif %}
   </div>
-</div>
-
-<!-- ── Recipe image ── -->
-{% if recipe.image_path %}
-  {% if recipe.image_path.startswith('http') %}
-    <img src="{{ recipe.image_path }}" alt="{{ recipe.title or 'Recipe photo' }}"
-         class="recipe-img" onerror="this.style.display='none'" />
-  {% else %}
-    <img src="/recipe/{{ recipe.id }}/image" alt="{{ recipe.title or 'Recipe photo' }}"
-         class="recipe-img" onerror="this.style.display='none'" />
   {% endif %}
-{% endif %}
+</div>
 
 <!-- ── Body ── -->
 <div class="two-col">
