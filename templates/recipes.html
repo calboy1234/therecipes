@@ -47,32 +47,34 @@
 <div class="grid">
   {% for r in rows %}
   <div class="grid-card">
-    {% if r['image_path'] %}
-      <a href="/recipe/{{ r['id'] }}">
-        {% if r['image_path'].startswith('http') %}
-          <img src="{{ r['image_path'] }}" alt="{{ r['title'] or 'Recipe' }}" loading="lazy"
+    {% if r.image_path %}
+      <a href="/recipe/{{ r.id }}">
+        {% if r.image_path.startswith('http') %}
+          <img src="{{ r.image_path }}" alt="{{ r.title or 'Recipe' }}" loading="lazy"
                onerror="this.style.display='none'" />
         {% else %}
-          <img src="/recipe/{{ r['id'] }}/image" alt="{{ r['title'] or 'Recipe' }}" loading="lazy"
+          <img src="/recipe/{{ r.id }}/image" alt="{{ r.title or 'Recipe' }}" loading="lazy"
                onerror="this.style.display='none'" />
         {% endif %}
       </a>
     {% endif %}
     <div class="info">
-      <a class="title" href="/recipe/{{ r['id'] }}">{{ r['title'] or '(untitled)' }}</a>
+      <a class="title" href="/recipe/{{ r.id }}">{{ r.title or '(untitled)' }}</a>
 
       <div style="display:flex; gap:.35rem; flex-wrap:wrap; margin-bottom:.3rem;">
-        {% if r['dish_category'] %}
-          <span class="badge badge-grey">{{ r['dish_category'] }}</span>
+        {% if r.dish_category %}
+          <span class="badge badge-grey">{{ r.dish_category }}</span>
         {% endif %}
       </div>
 
-      {% if r['original_author'] or r['recipe_submitter'] %}
-      <div class="muted" style="font-size:.74rem;">
-        {% if r['original_author'] %}by {{ r['original_author'] }}{% endif %}
-        {% if r['original_author'] and r['recipe_submitter'] %} · {% endif %}
-        {% if r['recipe_submitter'] %}added by {{ r['recipe_submitter'] }}{% endif %}
-      </div>
+      {% if is_authenticated %}
+        {% if r.original_author or r.recipe_submitter %}
+        <div class="muted" style="font-size:.74rem;">
+          {% if r.original_author %}by {{ r.original_author }}{% endif %}
+          {% if r.original_author and r.recipe_submitter %} · {% endif %}
+          {% if r.recipe_submitter %}added by {{ r.recipe_submitter }}{% endif %}
+        </div>
+        {% endif %}
       {% endif %}
     </div>
   </div>

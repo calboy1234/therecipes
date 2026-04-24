@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set is_new = recipe is none %}
-{% block title %}{{ 'New Recipe' if is_new else 'Edit — ' + (recipe['title'] or 'Recipe') }} — TheRecipes{% endblock %}
+{% block title %}{{ 'New Recipe' if is_new else 'Edit — ' + (recipe.title or 'Recipe') }} — TheRecipes{% endblock %}
 
 {% block content %}
 <style>
@@ -179,13 +179,13 @@
   {% if is_new %}
     <h1 style="margin:0;">New Recipe</h1>
   {% else %}
-    <a href="/recipe/{{ recipe['id'] }}" class="btn btn-outline" style="font-size:.85rem;">← Back</a>
+    <a href="/recipe/{{ recipe.id }}" class="btn btn-outline" style="font-size:.85rem;">← Back</a>
     <h1 style="margin:0;">Edit Recipe</h1>
   {% endif %}
 </div>
 
 <form id="recipe-form"
-      action="{{ '/recipes/new' if is_new else '/recipe/' + recipe['id']|string + '/edit' }}"
+      action="{{ '/recipes/new' if is_new else '/recipe/' + recipe.id|string + '/edit' }}"
       method="post"
       enctype="multipart/form-data"
       style="max-width:760px;">
@@ -211,7 +211,7 @@
   <div class="form-group">
     <label for="title">Title</label>
     <input type="text" id="title" name="title"
-           value="{{ recipe['title'] or '' if not is_new else '' }}"
+           value="{{ recipe.title or '' if not is_new else '' }}"
            placeholder="e.g. Grandma's Chocolate Cake"
            autofocus />
   </div>
@@ -219,7 +219,7 @@
   <div class="form-group">
     <label for="description">Description</label>
     <textarea id="description" name="description" rows="3"
-              placeholder="A short description of the recipe…">{{ recipe['description'] or '' if not is_new else '' }}</textarea>
+              placeholder="A short description of the recipe…">{{ recipe.description or '' if not is_new else '' }}</textarea>
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
@@ -229,7 +229,7 @@
         <option value="">— Select —</option>
         {% for cat in categories %}
           <option value="{{ cat }}"
-            {{ 'selected' if (not is_new and recipe['dish_category'] == cat) }}>{{ cat }}</option>
+            {{ 'selected' if (not is_new and recipe.dish_category == cat) }}>{{ cat }}</option>
         {% endfor %}
       </select>
     </div>
@@ -237,7 +237,7 @@
     <div class="form-group">
       <label for="serving_size">Serving Size</label>
       <input type="text" id="serving_size" name="serving_size"
-             value="{{ recipe['serving_size'] or '' if not is_new else '' }}"
+             value="{{ recipe.serving_size or '' if not is_new else '' }}"
              placeholder="e.g. Serves 4, Makes 24 cookies" />
     </div>
   </div>
@@ -249,14 +249,14 @@
     <div class="form-group">
       <label for="original_author">Original Author</label>
       <input type="text" id="original_author" name="original_author"
-             value="{{ recipe['original_author'] or '' if not is_new else '' }}"
+             value="{{ recipe.original_author or '' if not is_new else '' }}"
              placeholder="e.g. Grandma Rose, Julia Child" />
       <p class="field-hint">Who created this recipe in the real world.</p>
     </div>
     <div class="form-group">
       <label for="recipe_submitter">Added By</label>
       <input type="text" id="recipe_submitter" name="recipe_submitter"
-             value="{{ recipe['recipe_submitter'] or '' if not is_new else '' }}"
+             value="{{ recipe.recipe_submitter if not is_new else default_submitter }}"
              placeholder="e.g. your name or username" />
       <p class="field-hint">Who added it to this database.</p>
     </div>
@@ -296,7 +296,7 @@
   <div class="form-group">
     <label for="instructions">Instructions</label>
     <textarea id="instructions" name="instructions" rows="12"
-              placeholder="Step-by-step instructions…&#10;&#10;You can use numbered steps or plain paragraphs.">{{ recipe['instructions'] or '' if not is_new else '' }}</textarea>
+              placeholder="Step-by-step instructions…&#10;&#10;You can use numbered steps or plain paragraphs.">{{ recipe.instructions or '' if not is_new else '' }}</textarea>
   </div>
 
   <!-- ── Image ── -->
@@ -304,11 +304,11 @@
 
   <div class="form-group">
 
-    {% if not is_new and recipe['image_path'] %}
+    {% if not is_new and recipe.image_path %}
     <!-- Current image thumbnail — edit mode only -->
     <div id="current-img-wrap">
       <img id="current-img-thumb"
-           src="{{ url_for('recipe_image', recipe_id=recipe['id']) }}"
+           src="{{ url_for('recipe_image', recipe_id=recipe.id) }}"
            alt="Current recipe image" />
       <p class="field-hint">
         Current image. Upload a new file below to replace it.
@@ -367,7 +367,7 @@
     {% if is_new %}
       <a href="/recipes" class="btn btn-outline">Cancel</a>
     {% else %}
-      <a href="/recipe/{{ recipe['id'] }}" class="btn btn-outline">Cancel</a>
+      <a href="/recipe/{{ recipe.id }}" class="btn btn-outline">Cancel</a>
     {% endif %}
   </div>
 
@@ -881,8 +881,8 @@
 
   // Pre-populate rows from existing saved data (edit mode)
   (function loadIngredients() {
-    {% if not is_new and recipe['ingredients'] %}
-    const raw    = {{ recipe['ingredients'] | tojson }};
+    {% if not is_new and recipe.ingredients %}
+    const raw    = {{ recipe.ingredients | tojson }};
     const parsed = JSON.parse(raw);
     parsed.forEach(ing => {
       const qtyDisplay = ing.qty !== null && ing.qty !== undefined ? snapDecimal(ing.qty) : '';

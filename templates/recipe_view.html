@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ recipe['title'] or 'Recipe' }} — TheRecipes{% endblock %}
+{% block title %}{{ recipe.title or 'Recipe' }} — TheRecipes{% endblock %}
 
 {% block content %}
 <style>
@@ -139,48 +139,54 @@
 <!-- ── Header ── -->
 <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
   <div>
-    <h1 class="recipe-title">{{ recipe['title'] or 'Untitled Recipe' }}</h1>
+    <h1 class="recipe-title">{{ recipe.title or 'Untitled Recipe' }}</h1>
 
     <div class="recipe-meta">
-      {% if recipe['original_author'] %}
-        <span>👤 {{ recipe['original_author'] }}</span>
+      {% if is_authenticated %}
+        {% if recipe.original_author %}
+          <span>👤 {{ recipe.original_author }}</span>
+          <span class="meta-sep">·</span>
+        {% endif %}
+      {% endif %}
+      {% if recipe.dish_category %}
+        <span class="badge badge-grey">{{ recipe.dish_category }}</span>
         <span class="meta-sep">·</span>
       {% endif %}
-      {% if recipe['dish_category'] %}
-        <span class="badge badge-grey">{{ recipe['dish_category'] }}</span>
+      {% if recipe.serving_size %}
+        <span>🍽 {{ recipe.serving_size }}</span>
         <span class="meta-sep">·</span>
       {% endif %}
-      {% if recipe['serving_size'] %}
-        <span>🍽 {{ recipe['serving_size'] }}</span>
-        <span class="meta-sep">·</span>
+      {% if is_authenticated %}
+        {% if recipe.recipe_submitter %}
+          <span>Added by {{ recipe.recipe_submitter }}</span>
+          <span class="meta-sep">·</span>
+        {% endif %}
       {% endif %}
-      {% if recipe['recipe_submitter'] %}
-        <span>Added by {{ recipe['recipe_submitter'] }}</span>
-        <span class="meta-sep">·</span>
-      {% endif %}
-      <span>{{ recipe['created_at'][:10] }}</span>
+      <span>{{ recipe.created_at.strftime('%Y-%m-%d') }}</span>
     </div>
 
-    {% if recipe['description'] %}
+    {% if recipe.description %}
     <p style="margin-top:.75rem; font-size:1rem; color:var(--muted); max-width:560px; line-height:1.6;">
-      {{ recipe['description'] }}
+      {{ recipe.description }}
     </p>
     {% endif %}
   </div>
 
   <div class="gap no-print">
     <button onclick="window.print()" class="btn btn-outline">🖨 Print</button>
-    <a href="/recipe/{{ recipe['id'] }}/edit" class="btn btn-primary">✏ Edit</a>
+    {% if is_authenticated %}
+      <a href="/recipe/{{ recipe.id }}/edit" class="btn btn-primary">✏ Edit</a>
+    {% endif %}
   </div>
 </div>
 
 <!-- ── Recipe image ── -->
-{% if recipe['image_path'] %}
-  {% if recipe['image_path'].startswith('http') %}
-    <img src="{{ recipe['image_path'] }}" alt="{{ recipe['title'] or 'Recipe photo' }}"
+{% if recipe.image_path %}
+  {% if recipe.image_path.startswith('http') %}
+    <img src="{{ recipe.image_path }}" alt="{{ recipe.title or 'Recipe photo' }}"
          class="recipe-img" onerror="this.style.display='none'" />
   {% else %}
-    <img src="/recipe/{{ recipe['id'] }}/image" alt="{{ recipe['title'] or 'Recipe photo' }}"
+    <img src="/recipe/{{ recipe.id }}/image" alt="{{ recipe.title or 'Recipe photo' }}"
          class="recipe-img" onerror="this.style.display='none'" />
   {% endif %}
 {% endif %}
@@ -220,7 +226,7 @@
     <div id="instructions-container"></div>
     <script>
       (function renderInstructions() {
-        const raw = {{ recipe['instructions'] | tojson if recipe['instructions'] else 'null' }};
+        const raw = {{ recipe.instructions | tojson if recipe.instructions else 'null' }};
         const container = document.getElementById('instructions-container');
         if (!raw || !raw.trim()) {
           container.innerHTML = '<p class="muted">No instructions provided.</p>';
@@ -262,8 +268,9 @@
 </div>
 
 <!-- Delete (bottom, unobtrusive) -->
+{% if is_authenticated %}
 <div style="margin-top:2.5rem; padding-top:1rem; border-top:1px solid var(--border);" class="no-print">
-  <form action="/recipe/{{ recipe['id'] }}/delete" method="post" style="display:inline;"
+  <form action="/recipe/{{ recipe.id }}/delete" method="post" style="display:inline;"
         onsubmit="return confirm('Delete this recipe? This cannot be undone.')">
     <button type="submit" class="btn btn-outline"
             style="font-size:.82rem; color:#c0392b; border-color:#f5b7b1;">
@@ -271,6 +278,7 @@
     </button>
   </form>
 </div>
+{% endif %}
 
 <script>
   // ── Checkbox toggle ───────────────────────────────────────────────────────
@@ -284,7 +292,7 @@
   //  Falls back to legacy newline-separated text for old recipes.
   // ════════════════════════════════════════════════════════════════════════
 
-  const INGREDIENTS_RAW = {{ recipe['ingredients'] | tojson if recipe['ingredients'] else 'null' }};
+  const INGREDIENTS_RAW = {{ recipe.ingredients | tojson if recipe.ingredients else 'null' }};
 
   let INGREDIENTS = [];
   (function parseIngredients() {
