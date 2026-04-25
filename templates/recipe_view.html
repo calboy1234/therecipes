@@ -187,6 +187,7 @@
   .print-only { display: none; }
 
   @media print {
+    @page { margin: 1.5cm; }
     .no-print { display: none !important; }
     .print-only { display: block; }
     
@@ -197,7 +198,7 @@
       font-size: 12pt;
     }
 
-    main { margin: 0; padding: 0; max-width: 100%; }
+    main { margin: 0; padding: 1rem; max-width: 100%; }
     .card { border: none; box-shadow: none; padding: 0; }
 
     .recipe-header-grid.has-image { grid-template-columns: 1fr !important; gap: 0; }
