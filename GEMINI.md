@@ -24,6 +24,7 @@ A standalone recipe management application built with Flask and SQLAlchemy. It u
 4. **Versioning:** (Future) Audit logs for recipe edits.
 
 ## Maintenance & Testing
+- **Avoid External Clutter:** **DO NOT** perform manual tests that create files or folders outside the project directory (e.g., in `C:/data`). This prevents "random" artifacts from being left behind on the system.
 - **Test Artifacts:** `therecipes.db` and the `uploads/` folder are automatically created during manual or automated testing as the application initializes its database and handles image uploads.
 - **Cleanup Reminder:** Developers should periodically check for these files and delete them if they are no longer needed for active development or debugging, ensuring they don't accidentally get committed or clutter the workspace.
 
