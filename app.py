@@ -122,7 +122,7 @@ class Recipe(db.Model):
 
 # All recipe images are stored here — the ONLY directory app.py will read/write.
 UPLOAD_DIR = os.path.realpath(
-    os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads", "images"))
+    os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(DB_PATH), "images"))
 )
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
