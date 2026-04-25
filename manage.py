@@ -7,6 +7,7 @@ Usage:
     python manage.py backup             Copy DB to a timestamped backup file
     python manage.py status             Show table info, row counts, etc.
     python manage.py approve-user <usr> Approve a registered user
+    python manage.py revoke-user <usr>  Revoke a user's approval
     python manage.py batch-approve      Interactively approve multiple users
 
 Environment:
@@ -121,6 +122,21 @@ def cmd_approve(args):
         print(f"✓  User '{args.username}' has been approved.")
 
 
+def cmd_revoke_user(args):
+    """
+    Revoke a user's approval.
+    """
+    with app.app_context():
+        user = User.query.filter_by(username=args.username).first()
+        if not user:
+            print(f"✗  User not found: {args.username}")
+            return
+        
+        user.is_approved = False
+        db.session.commit()
+        print(f"✓  Access revoked for user '{args.username}'. They are no longer approved.")
+
+
 def cmd_lspending(args):
     """
     List all users pending approval.
@@ -195,6 +211,7 @@ COMMANDS = {
     "backup": cmd_backup,
     "status": cmd_status,
     "approve-user": cmd_approve,
+    "revoke-user": cmd_revoke_user,
     "batch-approve": cmd_batch_approve,
     "ls-pending": cmd_lspending,
     "help": cmd_help,
@@ -222,6 +239,9 @@ def main():
 
     approve_parser = subparsers.add_parser("approve-user", help="Approve a user")
     approve_parser.add_argument("username", help="Username to approve")
+
+    revoke_parser = subparsers.add_parser("revoke-user", help="Revoke user approval")
+    revoke_parser.add_argument("username", help="Username to revoke")
 
     # Manual check for invalid commands to provide the custom message requested
     if len(sys.argv) > 1:

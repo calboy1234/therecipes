@@ -74,6 +74,12 @@ docker exec -it therecipes python manage.py batch-approve
 docker exec -it therecipes python manage.py approve-user <username>
 ```
 
+### Revoke a User
+Un-approve a user, preventing them from logging in.
+```bash
+docker exec -it therecipes python manage.py revoke-user <username>
+```
+
 ### Create a Database Backup
 Creates a timestamped `.db` file in your `/data` folder.
 ```bash
