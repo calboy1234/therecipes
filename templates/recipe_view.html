@@ -181,17 +181,83 @@
     width: 100%; max-height: 380px; object-fit: cover;
     display: block; border-radius: var(--radius);
     margin-bottom: 1.5rem;
+  }
+
   /* ── Printing ── */
+  .print-only { display: none; }
+
   @media print {
-    .recipe-header-grid.has-image { grid-template-columns: 1fr !important; }
-    .header-image { max-width: 100%; margin-top: 1rem; }
-    .recipe-img-new { max-height: 400px; width: auto; margin: 0 auto; }
-    .two-col { grid-template-columns: 1fr !important; gap: 0.5rem !important; }
-    .section-heading { margin-top: 1.5rem; }
-    body { font-size: 12pt; color: #000; }
-    .recipe-title { font-size: 24pt; }
+    .no-print { display: none !important; }
+    .print-only { display: block; }
     
-    /* Hide image if no-image class is present on body */
+    body { 
+      font-family: Georgia, serif; 
+      background: #fff !important; 
+      color: #000 !important;
+      font-size: 12pt;
+    }
+
+    main { margin: 0; padding: 0; max-width: 100%; }
+    .card { border: none; box-shadow: none; padding: 0; }
+
+    .recipe-header-grid.has-image { grid-template-columns: 1fr !important; gap: 0; }
+    .header-image { 
+      max-width: 100%; 
+      margin-top: 1rem; 
+      text-align: center;
+    }
+    .recipe-img-new { 
+      max-height: 3.5in; 
+      width: auto; 
+      margin: 0 auto; 
+      display: inline-block;
+      box-shadow: none;
+    }
+
+    .recipe-title { font-size: 28pt; margin-top: 0; }
+    .recipe-description { font-size: 11pt; max-width: 100%; }
+
+    .two-col { 
+      display: block !important; 
+    }
+    
+    .section-heading { 
+      margin-top: 2rem; 
+      border-bottom: 2px solid var(--accent2);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .ingredient-item { 
+      break-inside: avoid; 
+      page-break-inside: avoid;
+      padding: 0.2rem 0;
+      cursor: default;
+    }
+    .ingredient-item:hover { background: none; }
+    
+    .instructions-steps li { 
+      break-inside: avoid; 
+      page-break-inside: avoid;
+      background: none;
+      padding: 0.5rem 0;
+      border: none;
+    }
+    .instructions-steps li::before {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* Footer for source URL */
+    .print-footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid #eee;
+      font-size: 9pt;
+      color: #666;
+    }
+
+    /* Handle the "No Image" toggle */
     body.print-no-image .header-image { display: none !important; }
   }
 </style>
@@ -341,6 +407,11 @@
 
   </div>
 
+</div>
+
+<!-- Print-only footer for source URL -->
+<div class="print-only print-footer">
+  Printed from: {{ request.url }}
 </div>
 
 <!-- Delete (bottom, unobtrusive) -->
