@@ -23,7 +23,12 @@ A standalone recipe management application built with Flask and SQLAlchemy. It u
 3. **Database Integrity:** (In Progress) Refinement of backup strategies.
 4. **Versioning:** (Future) Audit logs for recipe edits.
 
+## Maintenance & Testing
+- **Test Artifacts:** `therecipes.db` and the `uploads/` folder are automatically created during manual or automated testing as the application initializes its database and handles image uploads.
+- **Cleanup Reminder:** Developers should periodically check for these files and delete them if they are no longer needed for active development or debugging, ensuring they don't accidentally get committed or clutter the workspace.
+
 ## PowerShell Command Reference
+- **Help:** `python manage.py help`
 - **Initialize DB:** `python manage.py initdb`
 - **List Pending Users:** `python manage.py ls-pending`
 - **Approve User:** `python manage.py approve-user <username>`

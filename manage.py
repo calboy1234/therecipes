@@ -141,6 +141,13 @@ def cmd_lspending(args):
             print(f"{u.username:<20} {u.created_at.strftime('%Y-%m-%d %H:%M'):<20} {wait_str}")
 
 
+def cmd_help(args, parser):
+    """
+    Show the help message.
+    """
+    parser.print_help()
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 COMMANDS = {
@@ -149,26 +156,44 @@ COMMANDS = {
     "status": cmd_status,
     "approve-user": cmd_approve,
     "ls-pending": cmd_lspending,
+    "help": cmd_help,
 }
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="manage.py",
-        description="TheRecipes database management CLI"
+        description="TheRecipes database management CLI",
+        add_help=False
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    
+    # We add -h/--help manually so we can handle it or use the 'help' command
+    parser.add_argument("-h", "--help", action="store_true", help="Show this help message")
+
+    subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("initdb", help="Create tables")
     subparsers.add_parser("backup", help="Backup SQLite DB")
     subparsers.add_parser("status", help="Show DB status")
     subparsers.add_parser("ls-pending", help="List users pending approval")
+    subparsers.add_parser("help", help="Show this help message")
 
     approve_parser = subparsers.add_parser("approve-user", help="Approve a user")
     approve_parser.add_argument("username", help="Username to approve")
 
+    # Manual check for invalid commands to provide the custom message requested
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd not in COMMANDS and cmd not in ["-h", "--help"]:
+            print(f"'{cmd}' is not a valid command. For a list of commands and their description type 'python manage.py help'")
+            sys.exit(1)
+
     args = parser.parse_args()
-    COMMANDS[args.command](args)
+
+    if args.help or args.command == "help" or args.command is None:
+        cmd_help(args, parser)
+    else:
+        COMMANDS[args.command](args)
 
 
 if __name__ == "__main__":
