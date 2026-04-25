@@ -63,6 +63,12 @@ docker exec -it therecipes python manage.py initdb
 docker exec -it therecipes python manage.py ls-pending
 ```
 
+### Batch Approve Users
+Interactively approve multiple users one by one.
+```bash
+docker exec -it therecipes python manage.py batch-approve
+```
+
 ### Approve a User
 ```bash
 docker exec -it therecipes python manage.py approve-user <username>

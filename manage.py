@@ -7,6 +7,7 @@ Usage:
     python manage.py backup             Copy DB to a timestamped backup file
     python manage.py status             Show table info, row counts, etc.
     python manage.py approve-user <usr> Approve a registered user
+    python manage.py batch-approve      Interactively approve multiple users
 
 Environment:
     DB_PATH      Override the database path
@@ -141,6 +142,45 @@ def cmd_lspending(args):
             print(f"{u.username:<20} {u.created_at.strftime('%Y-%m-%d %H:%M'):<20} {wait_str}")
 
 
+def cmd_batch_approve(args):
+    """
+    Interactively approve users pending approval.
+    """
+    with app.app_context():
+        pending = User.query.filter_by(is_approved=False).order_by(User.created_at.asc()).all()
+        if not pending:
+            print("No users pending approval.")
+            return
+
+        total = len(pending)
+        print(f"There are {total} user(s) awaiting approval.\n")
+        
+        approved_count = 0
+        now = datetime.utcnow()
+
+        for i, user in enumerate(pending, 1):
+            wait = now - user.created_at
+            if wait.days > 0:
+                time_str = f"{wait.days} day(s)"
+            elif wait.seconds >= 3600:
+                time_str = f"{wait.seconds // 3600} hour(s)"
+            else:
+                time_str = f"{wait.seconds // 60} minute(s)"
+
+            prompt = f"Approve '{user.username}' (registered {time_str} ago)? [y/N] ({i}/{total}): "
+            choice = input(prompt).lower().strip()
+
+            if choice == 'y':
+                user.is_approved = True
+                db.session.commit()
+                print(f"✓  User '{user.username}' approved.")
+                approved_count += 1
+            else:
+                print(f"   Skipped '{user.username}'.")
+
+        print(f"\nBatch complete. {approved_count} users approved.")
+
+
 def cmd_help(args, parser):
     """
     Show the help message.
@@ -155,6 +195,7 @@ COMMANDS = {
     "backup": cmd_backup,
     "status": cmd_status,
     "approve-user": cmd_approve,
+    "batch-approve": cmd_batch_approve,
     "ls-pending": cmd_lspending,
     "help": cmd_help,
 }
@@ -176,6 +217,7 @@ def main():
     subparsers.add_parser("backup", help="Backup SQLite DB")
     subparsers.add_parser("status", help="Show DB status")
     subparsers.add_parser("ls-pending", help="List users pending approval")
+    subparsers.add_parser("batch-approve", help="Interactively approve users")
     subparsers.add_parser("help", help="Show this help message")
 
     approve_parser = subparsers.add_parser("approve-user", help="Approve a user")
