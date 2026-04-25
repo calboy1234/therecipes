@@ -7,14 +7,17 @@ A standalone, secure recipe management application built with Flask and SQLAlche
 This application is designed to run as a Docker container.
 
 ### 1. Environment Variables
-Configure these in your Docker setup (Unraid Template or Docker Run command):
+Configure these in your Docker setup (Unraid Template or Docker Run command) or `.env` file for local development:
 
-| Variable | Description | Recommended Value |
+| Variable | Description | Default / Recommended |
 | :--- | :--- | :--- |
-| `SECRET_KEY` | Secures user sessions. **Required.** | A long random string. |
+| `SECRET_KEY` | Secures user sessions and CSRF tokens. **Required.** | A long random string. |
+| `SESSION_COOKIE_SECURE` | Set to `False` for local testing on `http`. Set to `True` for production `https`. | `True` |
 | `DISCORD_WEBHOOK_URL` | Notify Discord of new signups. | `https://discord.com/api/webhooks/...` |
-| `DB_PATH` | Path to the database file inside the container. | `/data/therecipes.db` |
-| `UPLOAD_DIR` | Path to the image storage inside the container. | `/data/images` |
+| `DB_PATH` | Internal path to the SQLite database file. | `/data/therecipes.db` |
+| `UPLOAD_DIR` | Internal path where recipe images are stored. | `/data/images` |
+| `DATABASE_URL` | Override the DB connection (e.g. for external Postgres). | `sqlite:////data/therecipes.db` |
+| `RECIPE_CATEGORIES` | Comma-separated list of categories for the recipe form. | `Meal,Dessert,Side,Breakfast,...` |
 
 ### 2. Volume Mounts
 To ensure your data persists when the container updates, mount a host directory to `/data`:

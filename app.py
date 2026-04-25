@@ -54,7 +54,7 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SECURE"] = True # Recommended for HTTPS
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "True").lower() == "true" # Recommended for HTTPS
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 csrf = CSRFProtect(app)
