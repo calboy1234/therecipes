@@ -8,11 +8,12 @@
   #img-preview {
     display: none;
     width: 100%;
-    max-height: 260px;
-    object-fit: cover;
+    max-height: none;
+    object-fit: contain;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    margin-top: .75rem;
+    margin-top: 1.25rem;
+    background: var(--surface);
   }
   #img-preview.visible { display: block; }
 
@@ -350,9 +351,7 @@
     </div>
     {% else %}
     <!-- Edit mode: preview of pasted URL before saving -->
-    <img id="img-preview" src="" alt="Image preview"
-         style="display:none; width:100%; max-height:200px; object-fit:cover;
-                border-radius:var(--radius); border:1px solid var(--border); margin-top:.5rem;" />
+    <img id="img-preview" src="" alt="Image preview" />
     {% endif %}
 
     <!-- Hidden field carries the selected image URL to the server on submit.
@@ -594,13 +593,9 @@
       }
       _selectTile(url);
     } else {
-      // Edit mode: set the hidden field and show an inline preview
+      // Edit mode: set the hidden field and show the preview
       document.getElementById('image_url').value = url;
-      const preview = document.getElementById('img-preview');
-      if (preview) {
-        preview.src           = url;
-        preview.style.display = 'block';
-      }
+      _showPreview(url);
       const fi = document.getElementById('image_file');
       if (fi) fi.value = '';
     }
