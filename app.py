@@ -12,6 +12,10 @@ import os
 import uuid
 import time
 import random
+import threading
+import socket
+import ipaddress
+import sys
 from datetime import datetime
 
 import requests as http_requests
@@ -23,50 +27,57 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from sqlalchemy import or_
+from flask_wtf.csrf import CSRFProtect
+from sqlalchemy import or_, event, Engine
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from website_recipe_extractor import get_recipe
 from urllib.parse import urlparse
 
+# ── Security Configuration ────────────────────────────────────────────────────
+
+# Enforce SECRET_KEY from environment
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    print("CRITICAL ERROR: SECRET_KEY environment variable is missing.")
+    print("The application cannot start without it for security reasons.")
+    print("Please set SECRET_KEY in your environment or .env file.")
+    sys.exit(1)
+
+# Enable WAL mode for SQLite
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.close()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
+app.secret_key = SECRET_KEY
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = True # Recommended for HTTPS
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+csrf = CSRFProtect(app)
+
 # ── Database Configuration ────────────────────────────────────────────────────
 
-DB_PATH = os.environ.get("DB_PATH", os.path.join(os.getcwd(), "therecipes.db"))
+# Default to /data for Docker persistence, fallback to current dir for dev
+DB_PATH = os.environ.get("DB_PATH", os.path.join("/data", "therecipes.db"))
+
+# Ensure DB directory exists
+db_dir = os.path.dirname(DB_PATH)
+if db_dir:
+    os.makedirs(db_dir, exist_ok=True)
 
 # Ensure DB_PATH is an absolute path
 if not os.path.isabs(DB_PATH):
     DB_PATH = os.path.abspath(DB_PATH)
 
-# Construct SQLAlchemy URI
-if DB_PATH.startswith("/"):
-    # Unix-style absolute path
-    db_uri = f"sqlite:///{DB_PATH}"
-else:
-    # Windows-style absolute path or other
-    db_uri = f"sqlite:///{DB_PATH}"
-
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", db_uri)
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
-
-# ── Auth Configuration ────────────────────────────────────────────────────────
-
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = "login"
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -107,8 +118,9 @@ class Recipe(db.Model):
         return f"<Recipe {self.title}>"
 
 
+# ── Configuration & Helpers ───────────────────────────────────────────────────
+
 # All recipe images are stored here — the ONLY directory app.py will read/write.
-# Set UPLOAD_DIR in the environment to override (e.g. for local development).
 UPLOAD_DIR = os.path.realpath(
     os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads", "images"))
 )
@@ -124,29 +136,50 @@ USER_AGENTS = [
 ]
 
 CATEGORIES = [
-    "Meal",
-    "Dessert",
-    "Side",
-    "Breakfast",
-    "Appetizer",
-    "Beverage",
-    "Snack",
-    "Condiment",
-    "Preserves",
-    "Other",
+    c.strip() for c in os.environ.get(
+        "RECIPE_CATEGORIES",
+        "Meal,Dessert,Side,Breakfast,Appetizer,Beverage,Snack,Condiment,Preserves,Other"
+    ).split(",") if c.strip()
 ]
 
-# ── Database helpers ──────────────────────────────────────────────────────────
+# ── SSRF Protection Helper ────────────────────────────────────────────────────
 
-# Removed get_db and close_db as SQLAlchemy handles this via db.session
+def is_safe_url(url: str) -> bool:
+    """
+    Check if a URL is safe for server-side fetching.
+    Prevents access to private/local network ranges.
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Resolve hostname to IP
+        ip_addr = socket.gethostbyname(hostname)
+        ip = ipaddress.ip_address(ip_addr)
+
+        # Block private, link-local, and loopback addresses
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+            return False
+
+        # Block non-standard ports (optional but recommended)
+        if parsed.port and parsed.port not in (80, 443):
+            return False
+
+        return True
+    except Exception:
+        return False
 
 
 def _normalize_name(raw: str) -> str:
     """
     Convert a person-name field to consistent proper case.
-    Each word is capitalised; common name particles (de, van, von …) stay
-    lowercase unless they open the string.
-    Apostrophe contractions are handled correctly: O'Brien → O'Brien.
     """
     if not raw:
         return raw
@@ -167,7 +200,6 @@ def _normalize_name(raw: str) -> str:
 def _is_safe_image_path(path: str) -> bool:
     """
     Return True only if the resolved real path lives inside UPLOAD_DIR.
-    Uses os.path.realpath to defeat symlink and path-traversal attacks.
     """
     real = os.path.realpath(path)
     return real.startswith(UPLOAD_DIR + os.sep) or real == UPLOAD_DIR
@@ -176,7 +208,6 @@ def _is_safe_image_path(path: str) -> bool:
 def _hash_file(path: str) -> str | None:
     """
     SHA-256 of a local file.
-    Returns None if the file doesn't exist or is outside UPLOAD_DIR.
     """
     if not path or not _is_safe_image_path(path):
         return None
@@ -203,28 +234,48 @@ def _ext_from_content_type(content_type: str) -> str | None:
     return None
 
 
+def _delete_image_if_unused(path: str | None):
+    """
+    Delete a file from UPLOAD_DIR if it is no longer referenced by ANY recipe.
+    """
+    if not path or path.startswith(("http://", "https://")):
+        return
+    
+    # Check if any other recipe uses this exact same path
+    count = Recipe.query.filter_by(image_path=path).count()
+    if count == 0:
+        real_path = os.path.realpath(path)
+        if _is_safe_image_path(real_path) and os.path.isfile(real_path):
+            try:
+                os.remove(real_path)
+                print(f"[IMAGE CLEANUP] Deleted unused image: {path}")
+            except Exception as e:
+                print(f"[IMAGE CLEANUP] Error deleting {path}: {e}")
+
+
 def save_image_from_url(url: str, max_retries: int = 3) -> str | None:
     """
-    Download an image into UPLOAD_DIR with stealth headers and retry logic.
+    Download an image into UPLOAD_DIR using its SHA-256 hash as the filename.
     Returns the local path on success, None on failure.
     """
     if not url or not url.startswith(("http://", "https://")):
         return None
 
+    if not is_safe_url(url):
+        print(f"[SECURITY] Blocked unsafe URL: {url}")
+        return None
+
     for attempt in range(max_retries):
         try:
-            # 1. Prepare Stealth Headers
             headers = {
                 "User-Agent": random.choice(USER_AGENTS),
                 "Accept-Language": "en-US,en;q=0.9",
                 "Referer": f"https://{urlparse(url).netloc}/"
             }
 
-            # 2. Attempt the request
             resp = http_requests.get(url, headers=headers, timeout=15, stream=True)
             resp.raise_for_status()
 
-            # 3. Validate Extension
             content_type = resp.headers.get("Content-Type", "")
             ext = _ext_from_content_type(content_type)
             if not ext:
@@ -233,27 +284,36 @@ def save_image_from_url(url: str, max_retries: int = 3) -> str | None:
             if ext not in ALLOWED_EXTENSIONS:
                 return None
 
-            # 4. Stream the file to disk with size protection
-            filename = f"{uuid.uuid4()}{ext}"
-            dest     = os.path.join(UPLOAD_DIR, filename)
+            # Stream to a temporary file first to calculate hash
+            temp_filename = f"temp_{uuid.uuid4()}{ext}"
+            temp_path     = os.path.join(UPLOAD_DIR, temp_filename)
             
+            h = hashlib.sha256()
             size = 0
-            with open(dest, "wb") as f:
+            with open(temp_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=65536):
                     size += len(chunk)
                     if size > MAX_IMAGE_BYTES:
-                        os.remove(dest)
+                        f.close()
+                        os.remove(temp_path)
                         return None
                     f.write(chunk)
+                    h.update(chunk)
 
-            return dest  # SUCCESS!
+            image_hash = h.hexdigest()
+            final_filename = f"{image_hash}{ext}"
+            final_path     = os.path.join(UPLOAD_DIR, final_filename)
+
+            if os.path.exists(final_path):
+                os.remove(temp_path)
+                return final_path
+            
+            os.rename(temp_path, final_path)
+            return final_path
 
         except Exception as e:
-            # Log the failure and wait before retrying
             print(f"[IMAGE LOG] Attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
-            
             if attempt < max_retries - 1:
-                # Exponential-ish backoff: wait longer each time
                 time.sleep(2 * (attempt + 2) + random.random())
             else:
                 return None
@@ -261,9 +321,7 @@ def save_image_from_url(url: str, max_retries: int = 3) -> str | None:
 
 def save_image_from_upload(file_storage) -> str | None:
     """
-    Save a Werkzeug FileStorage upload into UPLOAD_DIR.
-    Validates extension and enforces MAX_IMAGE_BYTES.
-    Returns the saved local path on success, None on any failure.
+    Save a Werkzeug FileStorage upload into UPLOAD_DIR using its hash.
     """
     if not file_storage or not file_storage.filename:
         return None
@@ -273,29 +331,33 @@ def save_image_from_upload(file_storage) -> str | None:
     if ext not in ALLOWED_EXTENSIONS:
         return None
 
-    filename = f"{uuid.uuid4()}{ext}"
-    dest     = os.path.join(UPLOAD_DIR, filename)
-    file_storage.save(dest)
+    temp_filename = f"temp_{uuid.uuid4()}{ext}"
+    temp_path     = os.path.join(UPLOAD_DIR, temp_filename)
+    file_storage.save(temp_path)
 
-    if os.path.getsize(dest) > MAX_IMAGE_BYTES:
-        os.remove(dest)
+    if os.path.getsize(temp_path) > MAX_IMAGE_BYTES:
+        os.remove(temp_path)
         return None
 
-    return dest
+    image_hash = _hash_file(temp_path)
+    if not image_hash:
+        os.remove(temp_path)
+        return None
+
+    final_filename = f"{image_hash}{ext}"
+    final_path     = os.path.join(UPLOAD_DIR, final_filename)
+
+    if os.path.exists(final_path):
+        os.remove(temp_path)
+        return final_path
+
+    os.rename(temp_path, final_path)
+    return final_path
 
 
 def _resolve_image(existing_path: str | None = None) -> tuple[str | None, str | None]:
     """
     Determine the image path and hash for a recipe save.
-
-    Priority:
-      1. Uploaded file  — multipart field "image_file"
-      2. URL field      — form field "image_url", downloaded and stored locally
-      3. Keep existing  — no new image submitted
-
-    Returns (image_path, image_hash).
-    On failure a flash warning is set and existing values are preserved
-    so the recipe save still completes.
     """
     uploaded  = request.files.get("image_file")
     url_input = request.form.get("image_url", "").strip()
@@ -315,7 +377,37 @@ def _resolve_image(existing_path: str | None = None) -> tuple[str | None, str | 
     return existing_path, _hash_file(existing_path) if existing_path else None
 
 
-# ── Auth Routes ───────────────────────────────────────────────────────────────
+# ── Auth Configuration & Routes ───────────────────────────────────────────────
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+def _send_discord_notification(username):
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return
+    try:
+        payload = {
+            "embeds": [{
+                "title": "🆕 New User Registration",
+                "description": f"User **{username}** has registered and is awaiting approval.",
+                "color": 12590123,
+                "fields": [
+                    {"name": "Action Required", "value": f"Run `python manage.py approve-user {username}` to approve."}
+                ],
+                "timestamp": datetime.utcnow().isoformat()
+            }]
+        }
+        http_requests.post(webhook_url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"[ERROR] Failed to send Discord notification: {e}")
+
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -335,24 +427,7 @@ def register():
         db.session.add(user)
         db.session.commit()
 
-        # Discord Notification
-        webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
-        if webhook_url:
-            try:
-                payload = {
-                    "embeds": [{
-                        "title": "🆕 New User Registration",
-                        "description": f"User **{username}** has registered and is awaiting approval.",
-                        "color": 12590123, # A nice red/burgundy
-                        "fields": [
-                            {"name": "Action Required", "value": f"Run `python manage.py approve-user {username}` to approve."}
-                        ],
-                        "timestamp": datetime.utcnow().isoformat()
-                    }]
-                }
-                http_requests.post(webhook_url, json=payload, timeout=5)
-            except Exception as e:
-                print(f"[ERROR] Failed to send Discord notification: {e}")
+        threading.Thread(target=_send_discord_notification, args=(username,), daemon=True).start()
         
         flash("Registration successful! Please wait for an administrator to approve your account.", "info")
         return redirect(url_for("login"))
@@ -390,14 +465,12 @@ def logout():
     return redirect(url_for("recipe_list"))
 
 
-# ── Redirect root to recipes ──────────────────────────────────────────────────
+# ── Recipe Routes ─────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return redirect(url_for("recipe_list"))
 
-
-# ── Recipe list ───────────────────────────────────────────────────────────────
 
 @app.route("/recipes")
 def recipe_list():
@@ -437,8 +510,6 @@ def recipe_list():
     )
 
 
-# ── Recipe view ───────────────────────────────────────────────────────────────
-
 @app.route("/recipe/<int:recipe_id>")
 def recipe_view(recipe_id):
     recipe = Recipe.query.filter_by(id=recipe_id, is_deleted=0).first()
@@ -446,8 +517,6 @@ def recipe_view(recipe_id):
         abort(404)
     return render_template("recipe_view.html", recipe=recipe, is_authenticated=current_user.is_authenticated)
 
-
-# ── New recipe ────────────────────────────────────────────────────────────────
 
 @app.route("/recipes/new", methods=["GET", "POST"])
 @login_required
@@ -480,8 +549,6 @@ def recipe_new():
     return render_template("recipe_form.html", recipe=None, categories=CATEGORIES, default_submitter=current_user.username)
 
 
-# ── Edit recipe ───────────────────────────────────────────────────────────────
-
 @app.route("/recipe/<int:recipe_id>/edit", methods=["GET", "POST"])
 @login_required
 def recipe_edit(recipe_id):
@@ -490,6 +557,8 @@ def recipe_edit(recipe_id):
         abort(404)
 
     if request.method == "POST":
+        old_path = recipe.image_path
+        
         raw_author    = request.form.get("original_author",  "").strip() or None
         raw_submitter = request.form.get("recipe_submitter", "").strip() or None
         author    = _normalize_name(raw_author)    if raw_author    else None
@@ -509,12 +578,14 @@ def recipe_edit(recipe_id):
         recipe.image_hash       = image_hash
         
         db.session.commit()
+
+        if image_path != old_path:
+            _delete_image_if_unused(old_path)
+
         return redirect(url_for("recipe_view", recipe_id=recipe_id))
 
     return render_template("recipe_form.html", recipe=recipe, categories=CATEGORIES)
 
-
-# ── Delete recipe ─────────────────────────────────────────────────────────────
 
 @app.route("/recipe/<int:recipe_id>/delete", methods=["POST"])
 @login_required
@@ -526,94 +597,57 @@ def recipe_delete(recipe_id):
     return redirect(url_for("recipe_list"))
 
 
-# ── Serve recipe image ────────────────────────────────────────────────────────
-
 @app.route("/recipe/<int:recipe_id>/image")
 def recipe_image(recipe_id):
-    """
-    Serve a recipe's image from UPLOAD_DIR.
-    Refuses to serve anything outside that directory (path-traversal guard).
-    """
     recipe = Recipe.query.get(recipe_id)
-
     if not recipe or not recipe.image_path:
         abort(404)
-
     path = recipe.image_path
-
     if path.startswith(("http://", "https://")):
         abort(400)
-
     if not _is_safe_image_path(path):
         abort(403)
-
     real = os.path.realpath(path)
     if not os.path.isfile(real):
         abort(404)
-
     mime, _ = mimetypes.guess_type(real)
     return send_file(real, mimetype=mime or "image/jpeg")
 
 
-# ── Scrape recipe from URL ────────────────────────────────────────────────────
+# ── API Routes ────────────────────────────────────────────────────────────────
 
 @app.route("/api/scrape", methods=["POST"])
 def api_scrape():
     data = request.get_json(force=True) or {}
     url  = data.get("url", "").strip()
-    
     if not url:
         return jsonify({"status": "error", "message": "No URL provided"}), 400
-        
+    if not is_safe_url(url):
+        return jsonify({"status": "error", "message": "Unsafe URL blocked"}), 400
     try:
         result = get_recipe(url) 
-        
-        #Use jsonify to automatically convert the dict to a proper JSON response
         if result.get("status") == "error":
-            return jsonify(result), 400 # Or 404/500 depending on your preference
-            
+            return jsonify(result), 400
         return jsonify(result), 200
-        
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ── Scrape page images for the image picker ───────────────────────────────────
 
 @app.route("/api/recipe-images", methods=["POST"])
 def api_recipe_images():
-    """
-    Fetch a recipe page and return all candidate image URLs found in <img> tags.
-
-    The client is responsible for:
-      - loading each URL to check natural dimensions (filter < 200px either axis)
-      - sorting non-extractor images by area descending
-      - keeping the extractor image first
-      - capping the displayed set at 15
-
-    Checks src, data-src, data-lazy-src, and data-original attributes in that
-    order, skipping inline data: URIs.
-    """
     data = request.get_json(force=True) or {}
     url  = data.get("url", "").strip()
-
     if not url.startswith(("http://", "https://")):
         return jsonify({"error": "Invalid URL", "images": []}), 400
-
+    if not is_safe_url(url):
+        return jsonify({"error": "Unsafe URL blocked", "images": []}), 400
     try:
         from bs4 import BeautifulSoup
         from urllib.parse import urljoin
-
-        resp = http_requests.get(
-            url, timeout=12,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; TheRecipes/1.0)"},
-        )
+        resp = http_requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0 (compatible; TheRecipes/1.0)"})
         resp.raise_for_status()
-
         soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Attributes checked in priority order; data: URIs are always skipped
         SRC_ATTRS = ("src", "data-src", "data-lazy-src", "data-original")
-
         seen, images = set(), []
         for tag in soup.find_all("img"):
             for attr in SRC_ATTRS:
@@ -623,22 +657,16 @@ def api_recipe_images():
                     if abs_src.startswith(("http://", "https://")) and abs_src not in seen:
                         seen.add(abs_src)
                         images.append(abs_src)
-                    break  # use the first non-empty attribute found
-
+                    break
         return jsonify({"images": images})
-
     except Exception as e:
         return jsonify({"error": str(e), "images": []}), 500
 
-
-# ── Search redirect ───────────────────────────────────────────────────────────
 
 @app.route("/search")
 def search():
     return redirect(url_for("recipe_list", q=request.args.get("q", "")))
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)

@@ -348,6 +348,7 @@
 <div style="margin-top:2.5rem; padding-top:1rem; border-top:1px solid var(--border);" class="no-print">
   <form action="/recipe/{{ recipe.id }}/delete" method="post" style="display:inline;"
         onsubmit="return confirm('Delete this recipe? This cannot be undone.')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-outline"
             style="font-size:.82rem; color:#c0392b; border-color:#f5b7b1;">
       🗑 Delete Recipe
@@ -368,12 +369,17 @@
   //  Falls back to legacy newline-separated text for old recipes.
   // ════════════════════════════════════════════════════════════════════════
 
-  const INGREDIENTS_RAW = {{ recipe.ingredients | tojson if recipe.ingredients else 'null' }};
+  const INGREDIENTS_RAW = {{ recipe.ingredients | safe if recipe.ingredients else 'null' }};
 
   let INGREDIENTS = [];
   (function parseIngredients() {
     if (!INGREDIENTS_RAW) return;
-    INGREDIENTS = JSON.parse(INGREDIENTS_RAW);
+    try {
+        INGREDIENTS = typeof INGREDIENTS_RAW === 'string' ? JSON.parse(INGREDIENTS_RAW) : INGREDIENTS_RAW;
+    } catch (e) {
+        console.error("Failed to parse ingredients:", e);
+        INGREDIENTS = [];
+    }
   })();
 
   // ── Build ingredient DOM ──────────────────────────────────────────────────

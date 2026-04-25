@@ -190,6 +190,8 @@
       enctype="multipart/form-data"
       style="max-width:760px;">
 
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
   <!-- ── Import from URL ── -->
   {% if is_new %}
   <div class="form-section">Import from URL <span style="font-weight:normal; text-transform:none; letter-spacing:0; font-size:.8rem; color:var(--muted);">(optional — fills fields automatically)</span></div>
@@ -651,7 +653,10 @@
     try {
       const res  = await fetch('/api/recipe-images', {
         method:  'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value
+        },
         body:    JSON.stringify({url: pageUrl}),
       });
       const data = await res.json();
@@ -882,8 +887,8 @@
   // Pre-populate rows from existing saved data (edit mode)
   (function loadIngredients() {
     {% if not is_new and recipe.ingredients %}
-    const raw    = {{ recipe.ingredients | tojson }};
-    const parsed = JSON.parse(raw);
+    const raw    = {{ recipe.ingredients | safe }};
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     parsed.forEach(ing => {
       const qtyDisplay = ing.qty !== null && ing.qty !== undefined ? snapDecimal(ing.qty) : '';
       addIngredientRow(qtyDisplay, ing.unit || '', ing.name || '', ing.prep || '');
@@ -1047,7 +1052,10 @@
     try {
       const res  = await fetch('/api/scrape', {
         method:  'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value
+        },
         body:    JSON.stringify({url}),
       });
       const json = await res.json();

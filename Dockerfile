@@ -18,4 +18,4 @@ VOLUME ["/data", "/images"]
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "pip install --upgrade recipe-scrapers && python manage.py initdb && python app.py"]
+CMD ["sh", "-c", "pip install --upgrade recipe-scrapers && python manage.py initdb && gunicorn --bind 0.0.0.0:5000 app:app"]
