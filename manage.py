@@ -20,7 +20,33 @@ import os
 import sqlite3
 import sys
 from datetime import datetime
-from app import app, db, Recipe, User, UPLOAD_DIR, DB_PATH
+from app import app, db, Recipe, User, UserStatusLog, UPLOAD_DIR, DB_PATH
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _show_user_history(user):
+    """
+    Display a summary of a user's approval/revocation history.
+    """
+    if not user.status_logs:
+        return
+
+    print(f"\nHistory for '{user.username}':")
+    for log in sorted(user.status_logs, key=lambda l: l.changed_at):
+        date_str = log.changed_at.strftime('%Y-%m-%d %H:%M')
+        status_clr = "APPROVED" if log.status == "approved" else "REVOKED"
+        print(f"  · {date_str}: {status_clr}")
+    print()
+
+
+def _log_status_change(user, status):
+    """
+    Record a new status change in the log.
+    """
+    log = UserStatusLog(user_id=user.id, status=status)
+    db.session.add(log)
+    db.session.commit()
+
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
@@ -117,8 +143,11 @@ def cmd_approve(args):
             print(f"✗  User not found: {args.username}")
             return
         
+        _show_user_history(user)
+        
         user.is_approved = True
         db.session.commit()
+        _log_status_change(user, "approved")
         print(f"✓  User '{args.username}' has been approved.")
 
 
@@ -134,6 +163,7 @@ def cmd_revoke_user(args):
         
         user.is_approved = False
         db.session.commit()
+        _log_status_change(user, "revoked")
         print(f"✓  Access revoked for user '{args.username}'. They are no longer approved.")
 
 
@@ -183,12 +213,19 @@ def cmd_batch_approve(args):
             else:
                 time_str = f"{wait.seconds // 60} minute(s)"
 
+            # Check if ever revoked
+            was_revoked = any(l.status == "revoked" for l in user.status_logs)
+            if was_revoked:
+                print(f"⚠️  WARNING: User '{user.username}' was PREVIOUSLY REVOKED.")
+                _show_user_history(user)
+
             prompt = f"Approve '{user.username}' (registered {time_str} ago)? [y/N] ({i}/{total}): "
             choice = input(prompt).lower().strip()
 
             if choice == 'y':
                 user.is_approved = True
                 db.session.commit()
+                _log_status_change(user, "approved")
                 print(f"✓  User '{user.username}' approved.")
                 approved_count += 1
             else:

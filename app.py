@@ -79,6 +79,17 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+# ── Auto-Initialize Database ──────────────────────────────────────────────────
+with app.app_context():
+    # Check if we are using SQLite and if the file exists
+    db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+    if db_uri.startswith("sqlite:///"):
+        db_file = db_uri.replace("sqlite:///", "")
+        if not os.path.exists(db_file):
+            print(f"Database not found. Initializing at {db_file}...")
+            db.create_all()
+            print("✓ Database initialized.")
+
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -95,6 +106,16 @@ class User(db.Model, UserMixin):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+
+class UserStatusLog(db.Model):
+    __tablename__ = "user_status_logs"
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    status      = db.Column(db.String(20), nullable=False) # 'approved' or 'revoked'
+    changed_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref=db.backref("status_logs", lazy=True, cascade="all, delete-orphan"))
 
 
 class Recipe(db.Model):
